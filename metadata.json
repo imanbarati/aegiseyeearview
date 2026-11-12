@@ -1,0 +1,6 @@
+{
+  "name": "Aegis Eye",
+  "description": "Tactical situational awareness and conflict avoidance map inspired by Tom Clancy's The Division God's Eye View, visualizing real-time threat levels and safe evacuation routes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
