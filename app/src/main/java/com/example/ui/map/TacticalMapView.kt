@@ -45,6 +45,10 @@ fun TacticalMapView(
     showRadarSweep: Boolean,
     selectedZone: ThreatZone?,
     selectedHaven: SafeHaven?,
+    userMovement: com.example.location.UserMovementState,
+    followAgent: Boolean,
+    onToggleFollowAgent: () -> Unit,
+    threatWarning: String?,
     onZoneSelected: (ThreatZone) -> Unit,
     onHavenSelected: (SafeHaven) -> Unit,
     modifier: Modifier = Modifier
@@ -281,6 +285,14 @@ fun TacticalMapView(
                 )
             }
 
+            // Draw Live User Movement (Agent Tracking)
+            drawAgentMarker(
+                agent = userMovement,
+                geoToCanvas = ::geoToCanvas,
+                pulseProgress = pulseProgress,
+                textMeasurer = textMeasurer
+            )
+
             // Draw Animated Radar Sweep if enabled
             if (showRadarSweep) {
                 drawRadarSweep(
@@ -304,11 +316,37 @@ fun TacticalMapView(
             }
         }
 
+        // Threat Proximity Warning Banner
+        if (threatWarning != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp, start = 48.dp, end = 48.dp)
+                    .background(ThreatCriticalRed, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Alert",
+                        tint = TacticalDarkBg,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = threatWarning,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TacticalDarkBg
+                    )
+                }
+            }
+        }
+
         // Top Left Tactical Telemetry HUD
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = 16.dp, top = 16.dp)
+                .padding(start = 16.dp, top = if (threatWarning != null) 64.dp else 16.dp)
                 .background(TacticalSurface.copy(alpha = 0.88f), RoundedCornerShape(6.dp))
                 .clip(RoundedCornerShape(6.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -327,14 +365,14 @@ fun TacticalMapView(
                 )
             }
             Text(
-                text = "THEATER: IRAN CRISIS CORRIDOR",
-                style = MaterialTheme.typography.bodySmall,
-                color = TacticalTextSecondary
+                text = "GPS: ${if (userMovement.isLiveGps) "LIVE TRACKING" else "STANDBY"} // SPD: ${userMovement.speedKmh.toInt()} KM/H",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (userMovement.isLiveGps) ThreatLowGreen else TacticalCyan
             )
             Text(
-                text = "MAG: ${String.format("%.1fx", zoomScale)} // THREATS: ${threatZones.size} ACTIVE",
-                style = MaterialTheme.typography.labelSmall,
-                color = TacticalCyan
+                text = "${String.format("%.3f", userMovement.lat)}°N, ${String.format("%.3f", userMovement.lng)}°E",
+                style = MaterialTheme.typography.bodySmall,
+                color = TacticalTextPrimary
             )
         }
 
@@ -345,6 +383,18 @@ fun TacticalMapView(
                 .padding(end = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Follow Agent Toggle
+            FilledIconButton(
+                onClick = onToggleFollowAgent,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = if (followAgent) DivisionOrange else TacticalSurfaceElevated.copy(alpha = 0.9f),
+                    contentColor = if (followAgent) TacticalDarkBg else TacticalCyan
+                ),
+                modifier = Modifier.size(44.dp).testTag("follow_agent_button")
+            ) {
+                Icon(Icons.Default.GpsFixed, contentDescription = "Follow Agent")
+            }
+
             // Zoom In
             FilledIconButton(
                 onClick = { zoomScale = (zoomScale * 1.25f).coerceAtMost(4.5f) },
@@ -803,3 +853,58 @@ private fun DrawScope.drawTargetingReticle(
         topLeft = Offset(center.x + r + 6f, center.y - 14f)
     )
 }
+
+// Draw Live User Movement (Agent on Map)
+private fun DrawScope.drawAgentMarker(
+    agent: com.example.location.UserMovementState,
+    geoToCanvas: (Double, Double) -> Offset,
+    pulseProgress: Float,
+    textMeasurer: TextMeasurer
+) {
+    val center = geoToCanvas(agent.lat, agent.lng)
+    val agentColor = DivisionOrange
+
+    // Pulsing agent ring
+    drawCircle(
+        color = agentColor.copy(alpha = 0.25f),
+        radius = 28f * pulseProgress,
+        center = center
+    )
+    drawCircle(
+        color = agentColor,
+        radius = 16f,
+        center = center,
+        style = Stroke(width = 2.5f)
+    )
+
+    // Inner core
+    drawCircle(color = TacticalDarkBg, radius = 10f, center = center)
+    drawCircle(color = TacticalCyan, radius = 5f, center = center)
+
+    // Bearing direction tick/cone
+    val bearingRad = Math.toRadians(agent.bearingDegrees.toDouble() - 90.0)
+    val tipX = center.x + 24f * cos(bearingRad).toFloat()
+    val tipY = center.y + 24f * sin(bearingRad).toFloat()
+    drawLine(
+        color = TacticalCyan,
+        start = center,
+        end = Offset(tipX, tipY),
+        strokeWidth = 3f
+    )
+
+    // Agent HUD label
+    val speedText = if (agent.speedKmh > 0f) "${agent.speedKmh.toInt()} KM/H" else "STATIONARY"
+    val agentLabel = textMeasurer.measure(
+        text = AnnotatedString("AGENT // $speedText"),
+        style = TextStyle(
+            color = agentColor,
+            fontSize = 9.sp,
+            fontFamily = ChakraPetchFontFamily
+        )
+    )
+    drawText(
+        textLayoutResult = agentLabel,
+        topLeft = Offset(center.x - agentLabel.size.width / 2f, center.y + 20f)
+    )
+}
+

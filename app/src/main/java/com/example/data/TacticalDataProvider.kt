@@ -625,4 +625,66 @@ object TacticalDataProvider {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return r * c
     }
+
+    // Default verified OSINT, Fediverse, RSS, and Homemade SDR Radio Radar sources
+    val DEFAULT_INTEL_SOURCES = listOf(
+        IntelSource(
+            id = "src_x_heyitsmyturn",
+            name = "@hey_itsmyturn OSINT Monitor",
+            type = IntelSourceType.X_TWITTER,
+            endpointUrl = "https://x.com/hey_itsmyturn?lang=en",
+            isEnabled = true,
+            status = "STREAMING (LIVE OSINT)",
+            signalStrengthDbm = -52,
+            itemsDetected = 38,
+            description = "Middle East kinetic conflict monitor, UAV/ballistic launches, satellite pass updates, air defense telemetry."
+        ),
+        IntelSource(
+            id = "src_fediverse_crisis",
+            name = "Fediverse #IranCrisis / Mastodon",
+            type = IntelSourceType.FEDIVERSE_MASTODON,
+            endpointUrl = "https://mastodon.social/tags/irancrisis.rss",
+            isEnabled = true,
+            status = "FEDERATED (POLLING 20s)",
+            signalStrengthDbm = -60,
+            itemsDetected = 24,
+            description = "Decentralized citizen reports, civilian shelter conditions, road blockades, and local fuel availability."
+        ),
+        IntelSource(
+            id = "src_rss_humanitarian",
+            name = "UNHCR & Red Crescent Emergency Feed",
+            type = IntelSourceType.RSS_FEED,
+            endpointUrl = "https://reliefweb.int/updates/rss.xml",
+            isEnabled = true,
+            status = "CONNECTED (RSS/ATOM)",
+            signalStrengthDbm = -45,
+            itemsDetected = 17,
+            description = "Official humanitarian corridor bulletins, border processing speeds, medical evacuation airlift requests."
+        ),
+        IntelSource(
+            id = "src_homemade_sdr_adsb",
+            name = "Homemade RTL-SDR ADS-B Radar",
+            type = IntelSourceType.HOMEMADE_SDR,
+            endpointUrl = "rtl_tcp://192.168.1.150:1234",
+            frequencyMhz = 1090.00,
+            isEnabled = true,
+            status = "RF AGC LOCK // 1090 MHz",
+            signalStrengthDbm = -38,
+            itemsDetected = 9,
+            description = "Local RTL2832U SDR dongle capturing military transponders, tactical tankers, UAV orbits, and emergency squawks (7700)."
+        ),
+        IntelSource(
+            id = "src_radio_radar_vhf",
+            name = "Radio Radar / Air Defense Scanner",
+            type = IntelSourceType.RADIO_RADAR,
+            endpointUrl = "sdr://local-radio/vhf",
+            frequencyMhz = 142.80,
+            isEnabled = true,
+            status = "SWEEPING (118-144 MHz)",
+            signalStrengthDbm = -42,
+            itemsDetected = 14,
+            description = "Local RF spectrum scanner monitoring emergency crisis dispatch, UN convoy escorts, and radar pulse detections."
+        )
+    )
 }
+

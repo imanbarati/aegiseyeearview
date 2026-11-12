@@ -1,5 +1,8 @@
 package com.example.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,17 +18,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.MapVisualMode
-import com.example.model.ThreatLevel
 import com.example.ui.evac.EvacuationPathfinderSheet
 import com.example.ui.intel.LiveSitRepView
 import com.example.ui.map.TacticalMapView
 import com.example.ui.sheets.SafeHavenDetailSheet
 import com.example.ui.sheets.ThreatDetailSheet
+import com.example.ui.sources.IntelSourceManagerView
 import com.example.ui.survival.SurvivalProtocolView
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.MainNavTab
@@ -36,8 +40,30 @@ import com.example.ui.viewmodel.TacticalViewModel
 fun TacticalMainScreen(
     viewModel: TacticalViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showLayersMenu by remember { mutableStateOf(false) }
+
+    // Location Permission Request via ActivityResultContracts
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+        if (fineGranted || coarseGranted) {
+            viewModel.startGpsTracking(context)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        locationPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
+        viewModel.startGpsTracking(context)
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("tactical_main_screen"),
@@ -76,6 +102,10 @@ fun TacticalMainScreen(
                         showRadarSweep = uiState.showRadarSweep,
                         selectedZone = uiState.selectedZone,
                         selectedHaven = uiState.selectedHaven,
+                        userMovement = uiState.userMovement,
+                        followAgent = uiState.followAgentOnMap,
+                        onToggleFollowAgent = { viewModel.toggleFollowAgent() },
+                        threatWarning = uiState.threatWarning,
                         onZoneSelected = { viewModel.selectZone(it) },
                         onHavenSelected = { viewModel.selectHaven(it) },
                         modifier = Modifier.fillMaxSize()
@@ -222,6 +252,18 @@ fun TacticalMainScreen(
                     LiveSitRepView(
                         incidents = uiState.liveIncidents,
                         onSelectIncident = { viewModel.focusIncident(it) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                MainNavTab.SOURCES -> {
+                    IntelSourceManagerView(
+                        sources = uiState.intelSources,
+                        onToggleSource = { viewModel.toggleIntelSource(it) },
+                        onAddSource = { name, type, endpoint, freq, desc ->
+                            viewModel.addCustomSource(name, type, endpoint, freq, desc)
+                        },
+                        onDeleteSource = { viewModel.deleteCustomSource(it) },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -418,6 +460,7 @@ fun TacticalBottomNavBar(
             Triple(MainNavTab.MAP, "GOD'S EYE", Icons.Default.Map),
             Triple(MainNavTab.PATHFINDER, "EVAC ROUTE", Icons.Default.AltRoute),
             Triple(MainNavTab.SITREP, "SITREP", Icons.Default.Sensors),
+            Triple(MainNavTab.SOURCES, "SOURCES", Icons.Default.SettingsInputAntenna),
             Triple(MainNavTab.SURVIVAL, "PROTOCOLS", Icons.Default.Security)
         )
 
@@ -430,7 +473,7 @@ fun TacticalBottomNavBar(
                     Icon(
                         icon,
                         contentDescription = label,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 },
                 label = {

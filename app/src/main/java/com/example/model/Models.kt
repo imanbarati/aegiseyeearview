@@ -101,3 +101,26 @@ enum class MapVisualMode(val displayName: String, val subtitle: String) {
     SATELLITE_RECON("SATELLITE RECON", "High-Contrast Orbital Optics"),
     FLIR_THERMAL("FLIR THERMAL", "Infrared Threat Signatures")
 }
+
+enum class IntelSourceType(val displayName: String, val badge: String, val defaultIcon: String) {
+    X_TWITTER("X / Twitter OSINT", "OSINT-X", "tag"),
+    FEDIVERSE_MASTODON("Fediverse / Mastodon", "FEDIVERSE", "share"),
+    RSS_FEED("RSS / Atom Feed", "RSS-WEB", "rss_feed"),
+    HOMEMADE_SDR("Homemade SDR (RTL-SDR / WebSDR)", "SDR-TCP", "settings_input_antenna"),
+    RADIO_RADAR("Radio Radar (ADS-B / RF Spectrum)", "RF-RADAR", "radar")
+}
+
+data class IntelSource(
+    val id: String,
+    val name: String,
+    val type: IntelSourceType,
+    val endpointUrl: String,
+    val frequencyMhz: Double? = null,
+    val isEnabled: Boolean = true,
+    val status: String = "ONLINE - POLLING",
+    val signalStrengthDbm: Int = -58,
+    val itemsDetected: Int = 0,
+    val description: String = "",
+    val isCustom: Boolean = false
+)
+
