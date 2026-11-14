@@ -1,0 +1,54 @@
+{
+  "type": "FeatureCollection",
+  "name": "osint_field_beacons",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "beacon_lora_tajrish",
+        "name": "LoRa / Meshtastic Relay ALPHA-7",
+        "sector_code": "MESH-07",
+        "threat_level": "SAFE",
+        "freq_mhz": "868.10",
+        "stroke": "#00E5FF",
+        "notes": "Solar-powered off-grid packet repeater covering North Tehran ridge."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [51.4290, 35.8090]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "beacon_med_chitgar",
+        "name": "Red Crescent Trauma Point WEST-3",
+        "sector_code": "MED-03",
+        "threat_level": "SAFE",
+        "freq_mhz": "156.80",
+        "stroke": "#00E676",
+        "notes": "Field triage & potable water cache inside Chitgar western shelter sector."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [51.2240, 35.7440]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "beacon_sdr_vanak",
+        "name": "Community WebSDR RF Sensor",
+        "sector_code": "SDR-12",
+        "threat_level": "CAUTION",
+        "freq_mhz": "433.92",
+        "stroke": "#FFB300",
+        "notes": "Passive VHF/UHF telemetry node detecting drone & EW sweep bursts."
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [51.4110, 35.7570]
+      }
+    }
+  ]
+}

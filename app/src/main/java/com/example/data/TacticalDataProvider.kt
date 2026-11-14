@@ -302,6 +302,62 @@ object TacticalDataProvider {
             supplies = listOf("Trauma Surgery Tent", "Water Distribution Point", "Fuel Depots", "Emergency Sleeping Cots"),
             contactFreq = "143.900 MHz (Red Crescent East)",
             advisories = "Key waypoint for refugees escaping eastward toward Khorasan and Central Asia."
+        ),
+        SafeHaven(
+            id = "safezone_tehran_tajrish",
+            name = "Tajrish Deep Metro Bunker (Safe Zone N-01)",
+            countryOrRegion = "Tehran Northern Foothills",
+            type = SafeHavenType.URBAN_METRO_BUNKER,
+            lat = 35.8058,
+            lng = 51.4281,
+            borderStatus = "OPEN - SUBSURFACE BLAST SHELTER",
+            clearanceLevel = "Civilian Walk-In Sanctuary (45m Underground)",
+            supplies = listOf("Blast Doors", "Potable Water Cistern", "Triage Medics", "Emergency Battery Bank"),
+            contactFreq = "446.006 MHz (Tehran North Net)",
+            advisories = "Deepest northern metro station shielded by Alborz slope. Approach via residential alleys to avoid Valiasr main street cameras.",
+            isDesignatedWalkingSafeZone = true
+        ),
+        SafeHaven(
+            id = "safezone_tehran_chitgar",
+            name = "Chitgar West Red Crescent Safe Zone",
+            countryOrRegion = "Tehran West Perimeter",
+            type = SafeHavenType.URBAN_METRO_BUNKER,
+            lat = 35.7365,
+            lng = 51.2090,
+            borderStatus = "OPEN - HUMANITARIAN STAGING ZONE",
+            clearanceLevel = "Open Civilian Refuge & Westward Exit Staging",
+            supplies = listOf("Red Crescent Tents", "Water Purification", "Evac Bus Dispatch", "First Aid"),
+            contactFreq = "143.900 MHz (West Relief)",
+            advisories = "Open parkland free of tall glass collapse hazards. Ideal staging ground before heading west toward Karaj/Qazvin.",
+            isDesignatedWalkingSafeZone = true
+        ),
+        SafeHaven(
+            id = "safezone_isfahan_soffe",
+            name = "Mount Soffeh Civil Defense Shelter",
+            countryOrRegion = "Isfahan South Ridge",
+            type = SafeHavenType.URBAN_METRO_BUNKER,
+            lat = 32.5870,
+            lng = 51.6440,
+            borderStatus = "OPEN - MOUNTAIN CAVE & BUNKER",
+            clearanceLevel = "Civilian Walk-In Refuge",
+            supplies = listOf("Rock-Shielded Tunnels", "Drinking Water", "Solar Comms Relay"),
+            contactFreq = "156.450 MHz (Isfahan Rescue)",
+            advisories = "Natural granite shielding away from northern airbase strike zones.",
+            isDesignatedWalkingSafeZone = true
+        ),
+        SafeHaven(
+            id = "safezone_tabriz_elgoli",
+            name = "El-Goli Underground Sanctuary",
+            countryOrRegion = "Tabriz Southeast",
+            type = SafeHavenType.URBAN_METRO_BUNKER,
+            lat = 38.0270,
+            lng = 46.3640,
+            borderStatus = "OPEN - EMERGENCY SAFE ZONE",
+            clearanceLevel = "Civilian Walk-In Sanctuary",
+            supplies = listOf("Subsurface Vault", "Thermal Blankets", "Water & Rations"),
+            contactFreq = "142.800 MHz (NW Relief)",
+            advisories = "Outside central Tabriz EW interference core. Safe staging point for Marand bypass.",
+            isDesignatedWalkingSafeZone = true
         )
     )
 
@@ -686,5 +742,179 @@ object TacticalDataProvider {
             description = "Local RF spectrum scanner monitoring emergency crisis dispatch, UN convoy escorts, and radar pulse detections."
         )
     )
+
+    // Latitude/Longitude Threat-Level Heatmap Telemetry Points (Kinetic, EW, SAM & Urban Combat Intensity)
+    val THREAT_HEATMAP_POINTS = listOf(
+        // Macro theater peaks
+        ThreatHeatmapPoint("hm_natanz_core", 33.5119, 51.9167, 1.00f, 38.0, ThreatType.KINETIC_STRIKE, "Natanz Bunker Strike Core"),
+        ThreatHeatmapPoint("hm_natanz_n", 33.7200, 51.8500, 0.72f, 22.0, ThreatType.AIR_DEFENSE_RADAR, "Natanz North SAM Battery"),
+        ThreatHeatmapPoint("hm_isfahan_ab", 32.7480, 51.8610, 0.96f, 28.0, ThreatType.KINETIC_STRIKE, "Isfahan 8th Tactical Airbase"),
+        ThreatHeatmapPoint("hm_isfahan_city", 32.6546, 51.6680, 0.68f, 18.0, ThreatType.MILITARY_LOCKDOWN, "Isfahan Ring Checkpoint"),
+        ThreatHeatmapPoint("hm_fordow", 34.8833, 50.9833, 0.94f, 26.0, ThreatType.KINETIC_STRIKE, "Fordow Mountain Perimeter"),
+        ThreatHeatmapPoint("hm_parchin", 35.5250, 51.7700, 0.91f, 24.0, ThreatType.MISSILE_SILO, "Parchin Missile Complex"),
+        ThreatHeatmapPoint("hm_tehran_south_sam", 35.5300, 51.3700, 0.84f, 18.0, ThreatType.AIR_DEFENSE_RADAR, "Rey Air Defense Grid"),
+        ThreatHeatmapPoint("hm_bushehr", 28.9234, 50.8203, 0.95f, 32.0, ThreatType.RADIATION_HAZARD, "Bushehr Reactor Exclusion"),
+        ThreatHeatmapPoint("hm_hormuz_ew", 26.5667, 56.2500, 0.88f, 45.0, ThreatType.EW_JAMMING, "Hormuz Naval EW Jamming"),
+        ThreatHeatmapPoint("hm_bandar_abbas", 27.1832, 56.2666, 0.76f, 24.0, ThreatType.MILITARY_LOCKDOWN, "Bandar Abbas Naval Docks"),
+        ThreatHeatmapPoint("hm_ahvaz", 31.3183, 48.6706, 0.85f, 30.0, ThreatType.MILITARY_LOCKDOWN, "Khuzestan Oil & Armor Zone"),
+        ThreatHeatmapPoint("hm_kermanshah", 34.3142, 47.0650, 0.82f, 28.0, ThreatType.MISSILE_SILO, "Zagros Silo Counter-Battery"),
+        ThreatHeatmapPoint("hm_tabriz_ew", 38.0800, 46.2919, 0.64f, 20.0, ThreatType.EW_JAMMING, "Tabriz Central EW Node"),
+        ThreatHeatmapPoint("hm_mashhad_chk", 36.2972, 59.6067, 0.42f, 18.0, ThreatType.MILITARY_LOCKDOWN, "Mashhad Curfew Belt"),
+
+        // Granular Tehran urban heatmap pockets (for walking route avoidance!)
+        ThreatHeatmapPoint("hm_thr_mehrabad", 35.6890, 51.3130, 0.92f, 3.8, ThreatType.KINETIC_STRIKE, "Mehrabad Airfield Strike Risk"),
+        ThreatHeatmapPoint("hm_thr_enghelab", 35.7010, 51.3910, 0.78f, 2.8, ThreatType.MILITARY_LOCKDOWN, "Central Command Armored Cordon"),
+        ThreatHeatmapPoint("hm_thr_valiasr_mid", 35.7350, 51.4100, 0.65f, 2.2, ThreatType.EW_JAMMING, "Abbasabad EW Jamming Tower"),
+        ThreatHeatmapPoint("hm_thr_lavizan", 35.7680, 51.4920, 0.86f, 3.2, ThreatType.AIR_DEFENSE_RADAR, "Lavizan SAM Battery"),
+        ThreatHeatmapPoint("hm_thr_azadegan", 35.6350, 51.3400, 0.74f, 4.0, ThreatType.MILITARY_LOCKDOWN, "Azadegan Freeway Blockade")
+    )
+
+    // Cataloged Public OSINT & State Security CCTV Cameras (Vulnerable vs Hardened vs Offline Blind Spots)
+    val SURVEILLANCE_CAMERAS = listOf(
+        SurveillanceCamera(
+            id = "cam_thr_azadi_sq",
+            name = "Azadi Square Municipal Dome #04",
+            lat = 35.6997,
+            lng = 51.3380,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.VULNERABLE_PUBLIC_OSINT,
+            coverageRadiusMeters = 450.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "RTSP :554 (Unencrypted Public IP)",
+            osintNote = "Indexed on public Shodan/OSINT webcam feeds. Anyone online can observe traffic movement here."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_valiasr_junction",
+            name = "Valiasr–Hemmat State ANPR Gantry",
+            lat = 35.7448,
+            lng = 51.4095,
+            operatorType = CameraOperatorType.STATE_SECURITY_ANPR,
+            vulnerabilityStatus = CameraVulnerabilityStatus.HARDENED_STATE_ENCRYPTED,
+            coverageRadiusMeters = 520.0,
+            azimuthDegrees = 180f,
+            fovAngleDegrees = 120f,
+            streamProtocol = "Encrypted State Fiber VPN",
+            osintNote = "Invulnerable to external OSINT hijacking. Active facial & license plate recognition logging."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_vanak_metro",
+            name = "Vanak Sq Transit Biometric Array",
+            lat = 35.7575,
+            lng = 51.4099,
+            operatorType = CameraOperatorType.TRANSIT_HUB_FACIAL,
+            vulnerabilityStatus = CameraVulnerabilityStatus.HARDENED_STATE_ENCRYPTED,
+            coverageRadiusMeters = 380.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "Closed Intranet TLS 1.3",
+            osintNote = "State transit surveillance dome. Route 400m east or west through side alleys to stay invulnerable."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_tehran_uni",
+            name = "Enghelab Avenue Traffic Cam #19",
+            lat = 35.7022,
+            lng = 51.3955,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.VULNERABLE_PUBLIC_OSINT,
+            coverageRadiusMeters = 350.0,
+            azimuthDegrees = 90f,
+            fovAngleDegrees = 110f,
+            streamProtocol = "HTTP MJPEG / Port 8080 (Default Auth)",
+            osintNote = "Public municipal webcam with exposed telemetry stream. Avoid main avenue exposure."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_tajrish_approach",
+            name = "Shariati–Qeytarieh Relay Cam #07",
+            lat = 35.7880,
+            lng = 51.4380,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.OFFLINE_JAMMED,
+            coverageRadiusMeters = 300.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "OFFLINE (Power Grid / EW Cut)",
+            osintNote = "Substation outage verified via SDR RF silence. Confirmed safe pedestrian blind spot."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_chitgar_toll",
+            name = "Tehran–Karaj Hwy 2 State Toll ANPR",
+            lat = 35.7280,
+            lng = 51.2450,
+            operatorType = CameraOperatorType.STATE_SECURITY_ANPR,
+            vulnerabilityStatus = CameraVulnerabilityStatus.HARDENED_STATE_ENCRYPTED,
+            coverageRadiusMeters = 600.0,
+            azimuthDegrees = 270f,
+            fovAngleDegrees = 95f,
+            streamProtocol = "Dedicated State Microwave Link",
+            osintNote = "Monitors all westbound vehicles exiting Tehran. Pedestrian trail north of park stays outside FOV."
+        ),
+        SurveillanceCamera(
+            id = "cam_thr_tochal_south",
+            name = "Velenjak Foothill Weather & Traffic Cam",
+            lat = 35.8020,
+            lng = 51.4020,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.VULNERABLE_PUBLIC_OSINT,
+            coverageRadiusMeters = 320.0,
+            azimuthDegrees = 160f,
+            fovAngleDegrees = 100f,
+            streamProtocol = "Public HLS / Port 80",
+            osintNote = "Publicly accessible OSINT municipal camera overlooking Velenjak road."
+        ),
+        SurveillanceCamera(
+            id = "cam_isfahan_khaju",
+            name = "Isfahan Zayanderud Bridge Municipal Cam",
+            lat = 32.6368,
+            lng = 51.6833,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.VULNERABLE_PUBLIC_OSINT,
+            coverageRadiusMeters = 400.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "RTSP :554 (Public OSINT)",
+            osintNote = "Exposed city traffic feed over river crossing."
+        ),
+        SurveillanceCamera(
+            id = "cam_isfahan_north_gate",
+            name = "Isfahan Northern Airbase Perimeter PTZ",
+            lat = 32.7250,
+            lng = 51.7800,
+            operatorType = CameraOperatorType.CRITICAL_INFRASTRUCTURE_PTZ,
+            vulnerabilityStatus = CameraVulnerabilityStatus.HARDENED_STATE_ENCRYPTED,
+            coverageRadiusMeters = 1200.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "Military Encrypted Coax/Fiber",
+            osintNote = "High-zoom thermal PTZ array. Do not approach within 1.2 km."
+        ),
+        SurveillanceCamera(
+            id = "cam_tabriz_central",
+            name = "Tabriz Saat Square Municipal Cam",
+            lat = 38.0740,
+            lng = 46.2960,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.OFFLINE_JAMMED,
+            coverageRadiusMeters = 350.0,
+            azimuthDegrees = 360f,
+            fovAngleDegrees = 360f,
+            streamProtocol = "OFFLINE (EW Blackout)",
+            osintNote = "Camera uplink jammed by Tabriz NW EW array."
+        ),
+        SurveillanceCamera(
+            id = "cam_bandar_port",
+            name = "Bandar Abbas Harbor Maritime OSINT Cam",
+            lat = 27.1450,
+            lng = 56.2100,
+            operatorType = CameraOperatorType.PUBLIC_MUNICIPAL_OSINT,
+            vulnerabilityStatus = CameraVulnerabilityStatus.VULNERABLE_PUBLIC_OSINT,
+            coverageRadiusMeters = 500.0,
+            azimuthDegrees = 180f,
+            fovAngleDegrees = 120f,
+            streamProtocol = "HTTP Port 8081 (Exposed Port Cam)",
+            osintNote = "Public port authority stream visible in maritime OSINT trackers."
+        )
+    )
 }
+
 

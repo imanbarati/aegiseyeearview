@@ -7,7 +7,9 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,8 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -26,7 +26,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.MapVisualMode
 import com.example.ui.evac.EvacuationPathfinderSheet
 import com.example.ui.intel.LiveSitRepView
+import com.example.ui.map.FreeMapProvider
 import com.example.ui.map.TacticalMapView
+import com.example.ui.sheets.CameraDetailSheet
+import com.example.ui.sheets.GeoJsonMvtLayersSheet
+import com.example.ui.sheets.MvtFeatureDetailSheet
+import com.example.ui.sheets.NearbyCamerasSheet
 import com.example.ui.sheets.SafeHavenDetailSheet
 import com.example.ui.sheets.ThreatDetailSheet
 import com.example.ui.sources.IntelSourceManagerView
@@ -44,7 +49,6 @@ fun TacticalMainScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showLayersMenu by remember { mutableStateOf(false) }
 
-    // Location Permission Request via ActivityResultContracts
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -63,6 +67,7 @@ fun TacticalMainScreen(
             )
         )
         viewModel.startGpsTracking(context)
+        viewModel.loadBundledGeoJsonOverlays(context)
     }
 
     Scaffold(
@@ -70,8 +75,6 @@ fun TacticalMainScreen(
         containerColor = TacticalDarkBg,
         topBar = {
             TacticalTopBar(
-                mapMode = uiState.mapMode,
-                onSelectMapMode = { viewModel.setMapMode(it) },
                 onToggleLayersMenu = { showLayersMenu = !showLayersMenu },
                 isTrackingActive = uiState.isNavigationTrackingActive,
                 activeRouteName = uiState.activeRoute.name
@@ -91,38 +94,89 @@ fun TacticalMainScreen(
         ) {
             when (uiState.activeTab) {
                 MainNavTab.MAP -> {
-                    // Full Screen God's Eye Tactical Map
                     TacticalMapView(
                         threatZones = uiState.threatZones,
+                        heatmapPoints = uiState.heatmapPoints,
                         safeHavens = uiState.safeHavens,
+                        cameras = uiState.cameras,
+                        geoJsonOverlays = uiState.geoJsonOverlays,
                         activeRoute = uiState.activeRoute,
                         mapMode = uiState.mapMode,
+                        freeProvider = uiState.freeMapProvider,
                         showDeadZones = uiState.showDeadZones,
+                        showHeatmap = uiState.showHeatmap,
                         showSafeHavens = uiState.showSafeHavens,
+                        showCctvOverlay = uiState.showCctvOverlay,
                         showRadarSweep = uiState.showRadarSweep,
+                        showMvtGeoJsonOverlay = uiState.showMvtGeoJsonOverlay,
                         selectedZone = uiState.selectedZone,
                         selectedHaven = uiState.selectedHaven,
+                        selectedCamera = uiState.selectedCamera,
+                        selectedMvtFeature = uiState.selectedMvtFeature,
                         userMovement = uiState.userMovement,
+                        surveillanceExposure = uiState.surveillanceExposure,
                         followAgent = uiState.followAgentOnMap,
                         onToggleFollowAgent = { viewModel.toggleFollowAgent() },
                         threatWarning = uiState.threatWarning,
                         onZoneSelected = { viewModel.selectZone(it) },
                         onHavenSelected = { viewModel.selectHaven(it) },
+                        onCameraSelected = { viewModel.selectCamera(it) },
+                        onMvtFeatureSelected = { viewModel.selectMvtFeature(it) },
+                        onOpenCctvScanner = { viewModel.toggleCctvScanner(true) },
+                        onOpenGeoJsonManager = { viewModel.toggleGeoJsonSheet(true) },
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Bottom Floating Quick Access Action Bar on Map
+                    // Bottom Floating Quick Layer Bar on Map
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp, start = 16.dp, end = 16.dp)
-                            .background(TacticalSurface.copy(alpha = 0.92f), RoundedCornerShape(24.dp))
+                            .padding(bottom = 12.dp, start = 12.dp, end = 12.dp)
+                            .background(TacticalSurface.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
                             .border(1.dp, TacticalBorder, RoundedCornerShape(24.dp))
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Quick toggle dead zones
+                        FilterChip(
+                            selected = uiState.showHeatmap,
+                            onClick = { viewModel.toggleHeatmap() },
+                            label = { Text("HEATMAP", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(DivisionOrange, CircleShape)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = DivisionOrange.copy(alpha = 0.25f),
+                                selectedLabelColor = DivisionOrange,
+                                containerColor = TacticalSurfaceElevated,
+                                labelColor = TacticalTextSecondary
+                            )
+                        )
+
+                        FilterChip(
+                            selected = uiState.showCctvOverlay,
+                            onClick = { viewModel.toggleCctvOverlay() },
+                            label = { Text("CCTV", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(DivisionAmber, CircleShape)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = DivisionAmber.copy(alpha = 0.25f),
+                                selectedLabelColor = DivisionAmber,
+                                containerColor = TacticalSurfaceElevated,
+                                labelColor = TacticalTextSecondary
+                            )
+                        )
+
                         FilterChip(
                             selected = uiState.showDeadZones,
                             onClick = { viewModel.toggleDeadZones() },
@@ -142,11 +196,10 @@ fun TacticalMainScreen(
                             )
                         )
 
-                        // Quick toggle safe havens
                         FilterChip(
                             selected = uiState.showSafeHavens,
                             onClick = { viewModel.toggleSafeHavens() },
-                            label = { Text("SAFE HAVENS", style = MaterialTheme.typography.labelSmall) },
+                            label = { Text("SAFE ZONES", style = MaterialTheme.typography.labelSmall) },
                             leadingIcon = {
                                 Box(
                                     modifier = Modifier
@@ -162,15 +215,44 @@ fun TacticalMainScreen(
                             )
                         )
 
-                        // Evac Route Drawer Toggle
+                        FilterChip(
+                            selected = uiState.showMvtGeoJsonOverlay,
+                            onClick = { viewModel.toggleMvtGeoJsonOverlay() },
+                            label = { Text("MVT / GEOJSON", style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(TacticalCyan, CircleShape)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = TacticalCyan.copy(alpha = 0.25f),
+                                selectedLabelColor = TacticalCyan,
+                                containerColor = TacticalSurfaceElevated,
+                                labelColor = TacticalTextSecondary
+                            )
+                        )
+
+                        IconButton(
+                            onClick = { viewModel.toggleGeoJsonSheet(true) },
+                            modifier = Modifier.size(36.dp).testTag("open_geojson_manager_button")
+                        ) {
+                            Icon(
+                                Icons.Default.UploadFile,
+                                contentDescription = "GeoJSON & MVT Overlays",
+                                tint = TacticalCyan
+                            )
+                        }
+
                         IconButton(
                             onClick = { viewModel.togglePathfinderSheet() },
                             modifier = Modifier.size(36.dp).testTag("open_pathfinder_fab")
                         ) {
                             Icon(
-                                Icons.Default.AltRoute,
-                                contentDescription = "Pathfinder",
-                                tint = TacticalCyan
+                                Icons.Default.DirectionsWalk,
+                                contentDescription = "Safe Walking Pathfinder",
+                                tint = ThreatLowGreen
                             )
                         }
                     }
@@ -209,7 +291,74 @@ fun TacticalMainScreen(
                         }
                     }
 
-                    // Pathfinder Bottom Drawer (when opened on map)
+                    // Surveillance Camera Detail Sheet
+                    AnimatedVisibility(
+                        visible = uiState.selectedCamera != null,
+                        enter = slideInVertically(initialOffsetY = { it }),
+                        exit = slideOutVertically(targetOffsetY = { it }),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        uiState.selectedCamera?.let { cam ->
+                            CameraDetailSheet(
+                                camera = cam,
+                                userLat = uiState.userMovement.lat,
+                                userLng = uiState.userMovement.lng,
+                                onDismiss = { viewModel.selectCamera(null) },
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    // Nearby OSINT & State Cameras Vulnerability Scanner Sheet
+                    AnimatedVisibility(
+                        visible = uiState.isCctvScannerOpen,
+                        enter = slideInVertically(initialOffsetY = { it }),
+                        exit = slideOutVertically(targetOffsetY = { it }),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        NearbyCamerasSheet(
+                            exposure = uiState.surveillanceExposure,
+                            cameras = uiState.cameras,
+                            userLat = uiState.userMovement.lat,
+                            userLng = uiState.userMovement.lng,
+                            onSelectCamera = { viewModel.selectCamera(it) },
+                            onDismiss = { viewModel.toggleCctvScanner(false) }
+                        )
+                    }
+
+                    // Selected MVT Vector / GeoJSON Feature Inspector Sheet
+                    AnimatedVisibility(
+                        visible = uiState.selectedMvtFeature != null,
+                        enter = slideInVertically(initialOffsetY = { it }),
+                        exit = slideOutVertically(targetOffsetY = { it }),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        uiState.selectedMvtFeature?.let { selection ->
+                            MvtFeatureDetailSheet(
+                                selection = selection,
+                                onDismiss = { viewModel.selectMvtFeature(null) },
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    // Local GeoJSON -> MVT Vector Overlay Manager Sheet
+                    AnimatedVisibility(
+                        visible = uiState.isGeoJsonSheetOpen,
+                        enter = slideInVertically(initialOffsetY = { it }),
+                        exit = slideOutVertically(targetOffsetY = { it }),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        GeoJsonMvtLayersSheet(
+                            overlays = uiState.geoJsonOverlays,
+                            onToggleOverlay = { viewModel.toggleGeoJsonLayer(it) },
+                            onImportGeoJson = { name, raw -> viewModel.importCustomGeoJson(name, raw) },
+                            onDeleteCustomOverlay = { viewModel.deleteCustomGeoJsonOverlay(it) },
+                            onDismiss = { viewModel.toggleGeoJsonSheet(false) }
+                        )
+                    }
+
+                    // Pathfinder Bottom Drawer
                     AnimatedVisibility(
                         visible = uiState.isPathfinderExpanded,
                         enter = slideInVertically(initialOffsetY = { it }),
@@ -221,10 +370,13 @@ fun TacticalMainScreen(
                             originCity = uiState.originCity,
                             destinationHavenId = uiState.destinationHavenId,
                             standoffBufferKm = uiState.standoffBufferKm,
+                            avoidCctvCameras = uiState.avoidCctvCameras,
                             isNavigationTrackingActive = uiState.isNavigationTrackingActive,
                             onOriginChanged = { viewModel.setOriginCity(it) },
                             onDestinationChanged = { viewModel.setDestinationHaven(it) },
                             onBufferChanged = { viewModel.setStandoffBuffer(it) },
+                            onToggleAvoidCctv = { viewModel.toggleAvoidCctv() },
+                            onCalculateNearestSafeWalk = { viewModel.calculateNearestSafeWalk() },
                             onToggleTracking = { viewModel.toggleNavigationTracking() },
                             onClose = { viewModel.togglePathfinderSheet() },
                             modifier = Modifier.fillMaxHeight(0.85f)
@@ -238,10 +390,13 @@ fun TacticalMainScreen(
                         originCity = uiState.originCity,
                         destinationHavenId = uiState.destinationHavenId,
                         standoffBufferKm = uiState.standoffBufferKm,
+                        avoidCctvCameras = uiState.avoidCctvCameras,
                         isNavigationTrackingActive = uiState.isNavigationTrackingActive,
                         onOriginChanged = { viewModel.setOriginCity(it) },
                         onDestinationChanged = { viewModel.setDestinationHaven(it) },
                         onBufferChanged = { viewModel.setStandoffBuffer(it) },
+                        onToggleAvoidCctv = { viewModel.toggleAvoidCctv() },
+                        onCalculateNearestSafeWalk = { viewModel.calculateNearestSafeWalk() },
                         onToggleTracking = { viewModel.toggleNavigationTracking() },
                         onClose = { viewModel.setTab(MainNavTab.MAP) },
                         modifier = Modifier.fillMaxSize()
@@ -278,7 +433,7 @@ fun TacticalMainScreen(
                 }
             }
 
-            // Quick Map Layers Dropdown / Dialog
+            // Quick Map Layers Dropdown
             if (showLayersMenu) {
                 Box(
                     modifier = Modifier
@@ -290,7 +445,38 @@ fun TacticalMainScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "MAP VISUAL OPTICS",
+                            text = "FREE MAP PROVIDER (NO KEY)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TacticalCyan
+                        )
+                        FreeMapProvider.values().forEach { provider ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.setFreeMapProvider(provider)
+                                        showLayersMenu = false
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = uiState.freeMapProvider == provider,
+                                    onClick = {
+                                        viewModel.setFreeMapProvider(provider)
+                                        showLayersMenu = false
+                                    },
+                                    colors = RadioButtonDefaults.colors(selectedColor = TacticalCyan)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(provider.label, style = MaterialTheme.typography.bodySmall, color = TacticalTextPrimary)
+                            }
+                        }
+
+                        Divider(color = TacticalBorder)
+
+                        Text(
+                            text = "TACTICAL OPTICS MODE",
                             style = MaterialTheme.typography.labelSmall,
                             color = DivisionOrange
                         )
@@ -302,7 +488,7 @@ fun TacticalMainScreen(
                                         viewModel.setMapMode(mode)
                                         showLayersMenu = false
                                     }
-                                    .padding(vertical = 4.dp),
+                                    .padding(vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
@@ -347,8 +533,6 @@ fun TacticalMainScreen(
 
 @Composable
 fun TacticalTopBar(
-    mapMode: MapVisualMode,
-    onSelectMapMode: (MapVisualMode) -> Unit,
     onToggleLayersMenu: () -> Unit,
     isTrackingActive: Boolean,
     activeRouteName: String,
@@ -380,29 +564,25 @@ fun TacticalTopBar(
                         color = DivisionOrange
                     )
                     Text(
-                        text = "CONFLICT EVASION & CRISIS CORRIDORS",
+                        text = "OSMDROID OFFLINE // MVT GEOJSON & HEATMAP",
                         style = MaterialTheme.typography.labelSmall,
                         color = TacticalTextSecondary
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Map Mode / Layers button
-                IconButton(
-                    onClick = onToggleLayersMenu,
-                    modifier = Modifier.testTag("map_layers_button")
-                ) {
-                    Icon(
-                        Icons.Default.Layers,
-                        contentDescription = "Map Layers",
-                        tint = TacticalCyan
-                    )
-                }
+            IconButton(
+                onClick = onToggleLayersMenu,
+                modifier = Modifier.testTag("map_layers_button")
+            ) {
+                Icon(
+                    Icons.Default.Layers,
+                    contentDescription = "Map Layers",
+                    tint = TacticalCyan
+                )
             }
         }
 
-        // Crisis Tracking Active Top Banner
         AnimatedVisibility(visible = isTrackingActive) {
             Box(
                 modifier = Modifier
@@ -419,20 +599,20 @@ fun TacticalTopBar(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Navigation,
+                            Icons.Default.DirectionsWalk,
                             contentDescription = null,
                             tint = TacticalCyan,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "CRISIS HUD: $activeRouteName",
+                            text = "SAFE WALK HUD: $activeRouteName",
                             style = MaterialTheme.typography.labelSmall,
                             color = TacticalCyan
                         )
                     }
                     Text(
-                        text = "ONLINE",
+                        text = "ACTIVE",
                         style = MaterialTheme.typography.labelSmall,
                         color = ThreatLowGreen
                     )
@@ -458,7 +638,7 @@ fun TacticalBottomNavBar(
     ) {
         val items = listOf(
             Triple(MainNavTab.MAP, "GOD'S EYE", Icons.Default.Map),
-            Triple(MainNavTab.PATHFINDER, "EVAC ROUTE", Icons.Default.AltRoute),
+            Triple(MainNavTab.PATHFINDER, "SAFE WALK", Icons.Default.DirectionsWalk),
             Triple(MainNavTab.SITREP, "SITREP", Icons.Default.Sensors),
             Triple(MainNavTab.SOURCES, "SOURCES", Icons.Default.SettingsInputAntenna),
             Triple(MainNavTab.SURVIVAL, "PROTOCOLS", Icons.Default.Security)

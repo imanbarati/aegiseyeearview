@@ -16,11 +16,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.TacticalDataProvider
-import com.example.model.SafeHaven
 import com.example.model.TacticalRoute
 import com.example.ui.theme.*
 
@@ -28,12 +26,15 @@ import com.example.ui.theme.*
 fun EvacuationPathfinderSheet(
     activeRoute: TacticalRoute,
     originCity: String,
-    destinationHavenId: String,
+    destinationHavenId: String?,
     standoffBufferKm: Double,
+    avoidCctvCameras: Boolean,
     isNavigationTrackingActive: Boolean,
     onOriginChanged: (String) -> Unit,
-    onDestinationChanged: (String) -> Unit,
+    onDestinationChanged: (String?) -> Unit,
     onBufferChanged: (Double) -> Unit,
+    onToggleAvoidCctv: () -> Unit,
+    onCalculateNearestSafeWalk: () -> Unit,
     onToggleTracking: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
@@ -52,7 +53,7 @@ fun EvacuationPathfinderSheet(
             modifier = Modifier
                 .padding(16.dp)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Header
             item {
@@ -64,18 +65,18 @@ fun EvacuationPathfinderSheet(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .background(TacticalCyan, RoundedCornerShape(4.dp))
+                                .background(ThreatLowGreen, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "PATHFINDER",
+                                text = "A* WALKING",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = TacticalDarkBg
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "CRISIS EVACUATION CALCULATOR",
+                            text = "HEATMAP SAFE PATHFINDER",
                             style = MaterialTheme.typography.titleMedium,
                             color = TacticalTextPrimary
                         )
@@ -90,17 +91,39 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Origin Selector
+            // Primary Auto-Route to Nearest Safe Zone Button
+            item {
+                Button(
+                    onClick = onCalculateNearestSafeWalk,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("nearest_safe_zone_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ThreatLowGreen,
+                        contentColor = TacticalDarkBg
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.DirectionsWalk, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "ROUTE TO NEAREST SAFE ZONE (AUTO A*)",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+
+            // Origin Sector / GPS Anchor
             item {
                 Column {
                     Text(
-                        text = "ORIGIN / CURRENT LOCATION",
+                        text = "START LOCATION / SIMULATED SECTOR",
                         style = MaterialTheme.typography.labelSmall,
                         color = DivisionOrange
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val popularCities = listOf("Tehran", "Isfahan", "Tabriz", "Shiraz", "Ahvaz", "Mashhad", "Kermanshah")
+                        val popularCities = listOf("Live GPS", "Tehran", "Isfahan", "Tabriz", "Shiraz", "Ahvaz", "Mashhad")
                         items(popularCities) { city ->
                             val isSelected = city.equals(originCity, ignoreCase = true)
                             Box(
@@ -122,16 +145,33 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Destination Selector
+            // Destination Safe Zone Selector
             item {
                 Column {
                     Text(
-                        text = "DESTINATION SAFE HAVEN / BORDER",
+                        text = "DESIGNATED SAFE ZONES (AUTO = NEAREST)",
                         style = MaterialTheme.typography.labelSmall,
                         color = ThreatLowGreen
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            val isAuto = destinationHavenId == null
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isAuto) ThreatLowGreen else TacticalSurfaceElevated)
+                                    .clickable { onDestinationChanged(null) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .testTag("destination_chip_auto")
+                            ) {
+                                Text(
+                                    text = "NEAREST AUTO",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isAuto) TacticalDarkBg else TacticalTextPrimary
+                                )
+                            }
+                        }
                         items(TacticalDataProvider.SAFE_HAVENS) { haven ->
                             val isSelected = haven.id == destinationHavenId
                             Box(
@@ -143,7 +183,7 @@ fun EvacuationPathfinderSheet(
                                     .testTag("destination_chip_${haven.id}")
                             ) {
                                 Text(
-                                    text = haven.name.take(20),
+                                    text = haven.name.take(22),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = if (isSelected) TacticalDarkBg else TacticalTextPrimary
                                 )
@@ -153,51 +193,77 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Threat Buffer Clearance Slider
+            // CCTV Stealth Routing + Heatmap Weighting Controls
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(TacticalSurfaceElevated, RoundedCornerShape(8.dp))
-                        .padding(12.dp)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "AVOID PUBLIC OSINT & STATE CCTV",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TacticalCyan
+                            )
+                            Text(
+                                text = "Detours A* walking path around active camera optical cones",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TacticalTextDim
+                            )
+                        }
+                        Switch(
+                            checked = avoidCctvCameras,
+                            onCheckedChange = { onToggleAvoidCctv() },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = TacticalCyan,
+                                checkedTrackColor = TacticalCyanGlow
+                            ),
+                            modifier = Modifier.testTag("avoid_cctv_switch")
+                        )
+                    }
+
+                    Divider(color = TacticalBorder)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "DEAD ZONE STANDOFF BUFFER",
+                            text = "HEATMAP PENALTY WEIGHT",
                             style = MaterialTheme.typography.labelSmall,
-                            color = TacticalCyan
+                            color = DivisionOrange
                         )
                         Text(
-                            text = "${standoffBufferKm.toInt()} KM",
+                            text = "${standoffBufferKm.toInt()}x",
                             style = MaterialTheme.typography.labelMedium,
-                            color = TacticalCyan
+                            color = DivisionOrange
                         )
                     }
                     Slider(
                         value = standoffBufferKm.toFloat(),
                         onValueChange = { onBufferChanged(it.toDouble()) },
-                        valueRange = 15f..60f,
-                        steps = 8,
+                        valueRange = 10f..50f,
+                        steps = 7,
                         colors = SliderDefaults.colors(
-                            thumbColor = TacticalCyan,
-                            activeTrackColor = TacticalCyan,
+                            thumbColor = DivisionOrange,
+                            activeTrackColor = DivisionOrange,
                             inactiveTrackColor = TacticalBorder
                         ),
                         modifier = Modifier.testTag("buffer_slider")
                     )
-                    Text(
-                        text = "ISAC routes maintain an extra ${standoffBufferKm.toInt()}km safety margin outside kinetic and radar kill zones.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TacticalTextDim
-                    )
                 }
             }
 
-            // Route Metric Stats Cards
+            // Walking Route Telemetry Stats
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -209,9 +275,9 @@ fun EvacuationPathfinderSheet(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("TOTAL DISTANCE", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
+                            Text("WALK DIST", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
                             Text(
-                                "${activeRoute.distanceKm.toInt()} KM",
+                                "${activeRoute.distanceKm} KM",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = TacticalTextPrimary
                             )
@@ -224,9 +290,10 @@ fun EvacuationPathfinderSheet(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("EST. DRIVE TIME", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
+                            Text("EST. WALK", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
                             Text(
-                                "${activeRoute.estDriveHours} HRS",
+                                if (activeRoute.estWalkMinutes < 120) "${activeRoute.estWalkMinutes} MIN"
+                                else "${activeRoute.estWalkMinutes / 60}H ${activeRoute.estWalkMinutes % 60}M",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = DivisionOrange
                             )
@@ -239,7 +306,7 @@ fun EvacuationPathfinderSheet(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("SAFETY RATING", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
+                            Text("SAFETY", style = MaterialTheme.typography.labelSmall, color = TacticalTextDim)
                             Text(
                                 "${100 - activeRoute.riskScore}/100",
                                 style = MaterialTheme.typography.titleMedium,
@@ -250,7 +317,29 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Risk Assessment Badge
+            // Peak Heatmap Exposure & Cameras Avoided Banner
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(TacticalSurfaceElevated, RoundedCornerShape(8.dp))
+                        .padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "PEAK HEATMAP: ${(activeRoute.peakHeatmapIntensity * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (activeRoute.peakHeatmapIntensity > 0.6f) ThreatCriticalRed else ThreatLowGreen
+                    )
+                    Text(
+                        text = "CAMERAS BYPASSED: ${activeRoute.cctvCamerasAvoided}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TacticalCyan
+                    )
+                }
+            }
+
+            // Risk Classification
             item {
                 Box(
                     modifier = Modifier
@@ -285,7 +374,7 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Conflict Dead Zones Bypassed
+            // Heatmap Hotspots Bypassed
             item {
                 Column(
                     modifier = Modifier
@@ -294,7 +383,7 @@ fun EvacuationPathfinderSheet(
                         .padding(12.dp)
                 ) {
                     Text(
-                        text = "LETHAL DEAD ZONES CIRCUMNAVIGATED (${activeRoute.deadZonesAvoided.size})",
+                        text = "THREAT HEATMAP CLUSTERS AVOIDED (${activeRoute.deadZonesAvoided.size})",
                         style = MaterialTheme.typography.labelSmall,
                         color = ThreatCriticalRed
                     )
@@ -318,7 +407,7 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Turn-by-turn Crisis Directives
+            // Turn-by-turn Directives
             item {
                 Column(
                     modifier = Modifier
@@ -334,7 +423,7 @@ fun EvacuationPathfinderSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "TURN-BY-TURN TACTICAL EVACUATION DIRECTIVES",
+                            text = "A* WALKING CORRIDOR DIRECTIVES",
                             style = MaterialTheme.typography.labelSmall,
                             color = TacticalCyan
                         )
@@ -380,7 +469,7 @@ fun EvacuationPathfinderSheet(
                 }
             }
 
-            // Primary Call to Action Button: Activate Real-Time Navigation
+            // Engage HUD Button
             item {
                 Button(
                     onClick = onToggleTracking,
@@ -401,7 +490,7 @@ fun EvacuationPathfinderSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isNavigationTrackingActive) "DISENGAGE CRISIS TRACKING" else "ENGAGE CRISIS NAVIGATION HUD",
+                        text = if (isNavigationTrackingActive) "DISENGAGE WALKING HUD" else "ENGAGE CRISIS WALKING HUD",
                         style = MaterialTheme.typography.labelLarge
                     )
                 }

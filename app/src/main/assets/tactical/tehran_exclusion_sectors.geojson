@@ -1,0 +1,82 @@
+{
+  "type": "FeatureCollection",
+  "name": "tehran_exclusion_sectors",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sec_parchin_ew",
+        "name": "Parchin Ballistic & EW Bubble",
+        "sector_code": "MVT-SEC-01",
+        "threat_level": "CRITICAL",
+        "category": "MILITARY_EXCLUSION",
+        "stroke": "#FF2A2A",
+        "fill": "#FF2A2A",
+        "notes": "Heavy air-defense envelope & continuous GPS spoofing perimeter southeast of Tehran."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [51.7200, 35.5700],
+            [51.8600, 35.5700],
+            [51.8900, 35.4800],
+            [51.8200, 35.4300],
+            [51.7000, 35.4700],
+            [51.7200, 35.5700]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sec_pasteur_cordon",
+        "name": "Central Command Armored Cordon",
+        "sector_code": "MVT-SEC-02",
+        "threat_level": "HIGH",
+        "category": "CHECKPOINT_LOCKDOWN",
+        "stroke": "#FF6B00",
+        "fill": "#FF6B00",
+        "notes": "Dense state ANPR checkpoints & armored roadblocks around central district."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [51.3750, 35.7120],
+            [51.4250, 35.7120],
+            [51.4280, 35.6760],
+            [51.3720, 35.6760],
+            [51.3750, 35.7120]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sec_mehrabad_tarmac",
+        "name": "Mehrabad Airfield Strike Corridor",
+        "sector_code": "MVT-SEC-03",
+        "threat_level": "CRITICAL",
+        "category": "KINETIC_RISK",
+        "stroke": "#FF2A2A",
+        "fill": "#FF2A2A",
+        "notes": "Active dual-use tarmac & radar battery; high secondary explosion hazard."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [51.2880, 35.7020],
+            [51.3350, 35.7020],
+            [51.3350, 35.6740],
+            [51.2880, 35.6740],
+            [51.2880, 35.7020]
+          ]
+        ]
+      }
+    }
+  ]
+}

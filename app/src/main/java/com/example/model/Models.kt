@@ -39,7 +39,18 @@ data class ThreatZone(
     val lastPingMinutesAgo: Int
 )
 
+data class ThreatHeatmapPoint(
+    val id: String,
+    val lat: Double,
+    val lng: Double,
+    val intensity: Float, // 0.0f (minimal) to 1.0f (lethal peak)
+    val radiusKm: Double, // Gaussian influence radius
+    val category: ThreatType,
+    val label: String
+)
+
 enum class SafeHavenType(val title: String) {
+    URBAN_METRO_BUNKER("Designated Safe Zone / Subsurface Shelter"),
     BORDER_CROSSING("International Border Gate"),
     MARITIME_PORT("Maritime Sea Corridor"),
     HUMANITARIAN_STATION("UN / Red Crescent Hub"),
@@ -53,11 +64,63 @@ data class SafeHaven(
     val type: SafeHavenType,
     val lat: Double,
     val lng: Double,
-    val borderStatus: String, // e.g. "OPEN - HUMANITARIAN PASSAGE", "ESCORT REQUIRED", "SLOW PROCESSING"
+    val borderStatus: String,
     val clearanceLevel: String,
     val supplies: List<String>,
     val contactFreq: String,
-    val advisories: String
+    val advisories: String,
+    val isDesignatedWalkingSafeZone: Boolean = false
+)
+
+enum class CameraOperatorType(val displayName: String, val shortTag: String) {
+    PUBLIC_MUNICIPAL_OSINT("Public Municipal / Traffic Feed", "PUBLIC"),
+    STATE_SECURITY_ANPR("State Security / ANPR Checkpoint", "STATE-ANPR"),
+    TRANSIT_HUB_FACIAL("State Transit / Biometric Dome", "STATE-BIO"),
+    CRITICAL_INFRASTRUCTURE_PTZ("Military / Facility Perimeter PTZ", "STATE-PTZ")
+}
+
+enum class CameraVulnerabilityStatus(
+    val label: String,
+    val securityAssessment: String
+) {
+    VULNERABLE_PUBLIC_OSINT(
+        label = "VULNERABLE (PUBLIC OSINT)",
+        securityAssessment = "Unencrypted public IP/RTSP stream indexed by OSINT scanners. Viewable publicly; movement in FOV is exposed."
+    ),
+    HARDENED_STATE_ENCRYPTED(
+        label = "INVULNERABLE FEED (STATE ENCRYPTED)",
+        securityAssessment = "Closed-circuit state fiber VPN. Invulnerable to external OSINT access; actively tracks targets in FOV."
+    ),
+    OFFLINE_JAMMED(
+        label = "OFFLINE / BLIND SPOT",
+        securityAssessment = "Power or uplink severed due to EW jamming or damage. Confirmed optical blind spot."
+    )
+}
+
+data class SurveillanceCamera(
+    val id: String,
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val operatorType: CameraOperatorType,
+    val vulnerabilityStatus: CameraVulnerabilityStatus,
+    val coverageRadiusMeters: Double,
+    val azimuthDegrees: Float,
+    val fovAngleDegrees: Float,
+    val streamProtocol: String,
+    val osintNote: String
+)
+
+data class UserSurveillanceExposure(
+    val isExposed: Boolean,
+    val statusBadge: String,
+    val statusSummary: String,
+    val camerasInFov: List<SurveillanceCamera>,
+    val vulnerablePublicNearbyCount: Int,
+    val stateEncryptedNearbyCount: Int,
+    val offlineBlindSpotsNearbyCount: Int,
+    val nearestCamera: SurveillanceCamera?,
+    val nearestCameraDistanceMeters: Double
 )
 
 data class TacticalRoute(
@@ -69,9 +132,15 @@ data class TacticalRoute(
     val distanceKm: Double,
     val estDriveHours: Double,
     val riskScore: Int, // 0 - 100
-    val riskClassification: String, // "OPTIMAL / LOWEST CASUALTY RISK", "ELEVATED CONFLICT EXPOSURE", "EMERGENCY ONLY"
+    val riskClassification: String,
     val deadZonesAvoided: List<String>,
-    val tacticalDirectives: List<String>
+    val tacticalDirectives: List<String>,
+    val isWalkingRoute: Boolean = false,
+    val estWalkMinutes: Int = 0,
+    val peakHeatmapIntensity: Float = 0f,
+    val averageHeatmapIntensity: Float = 0f,
+    val cctvCamerasAvoided: Int = 0,
+    val targetSafeHavenId: String = ""
 )
 
 data class LiveIncident(
@@ -97,8 +166,8 @@ data class SurvivalProtocol(
 )
 
 enum class MapVisualMode(val displayName: String, val subtitle: String) {
-    TACTICAL_HUD("TACTICAL HUD", "ISAC Holographic Wireframe"),
-    SATELLITE_RECON("SATELLITE RECON", "High-Contrast Orbital Optics"),
+    TACTICAL_HUD("TACTICAL HUD", "CartoDB Dark + ISAC Vector Grid"),
+    SATELLITE_RECON("SATELLITE RECON", "Esri Orbital Imagery (Free)"),
     FLIR_THERMAL("FLIR THERMAL", "Infrared Threat Signatures")
 }
 
@@ -123,4 +192,3 @@ data class IntelSource(
     val description: String = "",
     val isCustom: Boolean = false
 )
-

@@ -1,0 +1,72 @@
+{
+  "type": "FeatureCollection",
+  "name": "evacuation_corridors",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corr_north_footpath",
+        "name": "Valiasr -> Tajrish Parkland Footpath",
+        "sector_code": "CORR-N1",
+        "threat_level": "LOW",
+        "corridor_type": "PEDESTRIAN_COVERED",
+        "stroke": "#00E676",
+        "est_minutes": 48,
+        "notes": "Tree-canopy parkways & pedestrian alleys bypassing major ANPR arterial cameras."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [51.3890, 35.6892],
+          [51.4040, 35.7150],
+          [51.4120, 35.7420],
+          [51.4210, 35.7680],
+          [51.4275, 35.8045]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corr_west_chitgar",
+        "name": "Kan Creek -> Chitgar Forest Extraction",
+        "sector_code": "CORR-W2",
+        "threat_level": "LOW",
+        "corridor_type": "GREEN_BELT_FOOTPATH",
+        "stroke": "#00E5FF",
+        "est_minutes": 62,
+        "notes": "Low-visibility drainage canal & forest ridge route avoiding Mehrabad exclusion zone."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [51.3650, 35.7220],
+          [51.3200, 35.7380],
+          [51.2750, 35.7450],
+          [51.2190, 35.7460]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corr_darband_ridge",
+        "name": "Tajrish -> Alborz Darband Ridge Trail",
+        "sector_code": "CORR-ALP3",
+        "threat_level": "SAFE",
+        "corridor_type": "MOUNTAIN_EGRESS",
+        "stroke": "#00E676",
+        "est_minutes": 35,
+        "notes": "High-ground canyon trail above dense urban surveillance grid."
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [51.4275, 35.8045],
+          [51.4260, 35.8180],
+          [51.4248, 35.8310]
+        ]
+      }
+    }
+  ]
+}

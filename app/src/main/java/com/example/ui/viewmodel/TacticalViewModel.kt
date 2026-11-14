@@ -7,6 +7,11 @@ import com.example.data.TacticalDataProvider
 import com.example.location.LocationHelper
 import com.example.location.UserMovementState
 import com.example.model.*
+import com.example.routing.TacticalPathfinder
+import com.example.ui.map.FreeMapProvider
+import com.example.ui.map.mvt.GeoJsonTacticalLoader
+import com.example.ui.map.mvt.MvtFeatureSelection
+import com.example.ui.map.mvt.TacticalGeoJsonOverlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +20,7 @@ import kotlinx.coroutines.launch
 
 enum class MainNavTab(val title: String, val code: String) {
     MAP("GOD'S EYE", "MAP-01"),
-    PATHFINDER("EVAC ROUTE", "NAV-02"),
+    PATHFINDER("SAFE WALK", "NAV-02"),
     SITREP("SITREP", "INTEL-03"),
     SOURCES("INTEL & SDR", "SDR-04"),
     SURVIVAL("PROTOCOLS", "SURV-05")
@@ -24,23 +29,49 @@ enum class MainNavTab(val title: String, val code: String) {
 data class TacticalUiState(
     val activeTab: MainNavTab = MainNavTab.MAP,
     val threatZones: List<ThreatZone> = TacticalDataProvider.THREAT_ZONES,
+    val heatmapPoints: List<ThreatHeatmapPoint> = TacticalDataProvider.THREAT_HEATMAP_POINTS,
     val safeHavens: List<SafeHaven> = TacticalDataProvider.SAFE_HAVENS,
+    val cameras: List<SurveillanceCamera> = TacticalDataProvider.SURVEILLANCE_CAMERAS,
     val liveIncidents: List<LiveIncident> = TacticalDataProvider.LIVE_INCIDENTS,
     val intelSources: List<IntelSource> = TacticalDataProvider.DEFAULT_INTEL_SOURCES,
     val originCity: String = "Tehran",
-    val destinationHavenId: String = "haven_kapikoy",
-    val standoffBufferKm: Double = 30.0,
-    val activeRoute: TacticalRoute = TacticalDataProvider.calculateEvacuationRoute("Tehran", "haven_kapikoy", 30.0),
+    val destinationHavenId: String? = null, // null = Auto-select nearest designated Safe Zone
+    val standoffBufferKm: Double = 22.0, // A* heatmap threat weight
+    val avoidCctvCameras: Boolean = true,
+    val activeRoute: TacticalRoute = TacticalPathfinder.findSafestWalkingRoute(
+        startLat = 35.6892,
+        startLng = 51.3890,
+        safeHavens = TacticalDataProvider.SAFE_HAVENS,
+        heatmapPoints = TacticalDataProvider.THREAT_HEATMAP_POINTS,
+        cameras = TacticalDataProvider.SURVEILLANCE_CAMERAS,
+        targetSafeHavenId = null,
+        avoidCctv = true,
+        threatWeight = 22.0
+    ),
     val selectedZone: ThreatZone? = null,
     val selectedHaven: SafeHaven? = null,
+    val selectedCamera: SurveillanceCamera? = null,
+    val isCctvScannerOpen: Boolean = false,
     val mapMode: MapVisualMode = MapVisualMode.TACTICAL_HUD,
+    val freeMapProvider: FreeMapProvider = FreeMapProvider.CARTO_DARK,
     val showDeadZones: Boolean = true,
+    val showHeatmap: Boolean = true,
     val showSafeHavens: Boolean = true,
+    val showCctvOverlay: Boolean = true,
     val showRadarSweep: Boolean = true,
+    val showMvtGeoJsonOverlay: Boolean = true,
+    val geoJsonOverlays: List<TacticalGeoJsonOverlay> = emptyList(),
+    val selectedMvtFeature: MvtFeatureSelection? = null,
+    val isGeoJsonSheetOpen: Boolean = false,
     val isNavigationTrackingActive: Boolean = false,
     val isEmergencyBeaconActive: Boolean = false,
-    val userCoordinates: Pair<Double, Double> = Pair(35.6892, 51.3890), // Tehran
+    val userCoordinates: Pair<Double, Double> = Pair(35.6892, 51.3890),
     val userMovement: UserMovementState = UserMovementState(35.6892, 51.3890),
+    val surveillanceExposure: UserSurveillanceExposure = TacticalPathfinder.evaluateCctvExposure(
+        lat = 35.6892,
+        lng = 51.3890,
+        cameras = TacticalDataProvider.SURVEILLANCE_CAMERAS
+    ),
     val followAgentOnMap: Boolean = false,
     val threatWarning: String? = null,
     val isPathfinderExpanded: Boolean = false
@@ -52,6 +83,7 @@ class TacticalViewModel : ViewModel() {
     val uiState: StateFlow<TacticalUiState> = _uiState.asStateFlow()
 
     private var locationHelper: LocationHelper? = null
+    private var latestRealGpsMovement: UserMovementState? = null
 
     fun setTab(tab: MainNavTab) {
         _uiState.update { it.copy(activeTab = tab) }
@@ -61,12 +93,24 @@ class TacticalViewModel : ViewModel() {
         _uiState.update { it.copy(mapMode = mode) }
     }
 
+    fun setFreeMapProvider(provider: FreeMapProvider) {
+        _uiState.update { it.copy(freeMapProvider = provider) }
+    }
+
     fun toggleDeadZones() {
         _uiState.update { it.copy(showDeadZones = !it.showDeadZones) }
     }
 
+    fun toggleHeatmap() {
+        _uiState.update { it.copy(showHeatmap = !it.showHeatmap) }
+    }
+
     fun toggleSafeHavens() {
         _uiState.update { it.copy(showSafeHavens = !it.showSafeHavens) }
+    }
+
+    fun toggleCctvOverlay() {
+        _uiState.update { it.copy(showCctvOverlay = !it.showCctvOverlay) }
     }
 
     fun toggleRadarSweep() {
@@ -77,60 +121,230 @@ class TacticalViewModel : ViewModel() {
         _uiState.update { it.copy(followAgentOnMap = !it.followAgentOnMap) }
     }
 
+    fun toggleMvtGeoJsonOverlay() {
+        _uiState.update { it.copy(showMvtGeoJsonOverlay = !it.showMvtGeoJsonOverlay) }
+    }
+
     fun selectZone(zone: ThreatZone?) {
-        _uiState.update { it.copy(selectedZone = zone, selectedHaven = null) }
+        _uiState.update { it.copy(selectedZone = zone, selectedHaven = null, selectedCamera = null, selectedMvtFeature = null) }
     }
 
     fun selectHaven(haven: SafeHaven?) {
-        _uiState.update { it.copy(selectedHaven = haven, selectedZone = null) }
+        _uiState.update { it.copy(selectedHaven = haven, selectedZone = null, selectedCamera = null, selectedMvtFeature = null) }
+    }
+
+    fun selectCamera(camera: SurveillanceCamera?) {
+        _uiState.update {
+            it.copy(
+                selectedCamera = camera,
+                selectedZone = null,
+                selectedHaven = null,
+                selectedMvtFeature = null,
+                isCctvScannerOpen = false
+            )
+        }
+    }
+
+    fun selectMvtFeature(selection: MvtFeatureSelection?) {
+        _uiState.update {
+            it.copy(
+                selectedMvtFeature = selection,
+                selectedZone = null,
+                selectedHaven = null,
+                selectedCamera = null,
+                isCctvScannerOpen = false,
+                isGeoJsonSheetOpen = false
+            )
+        }
+    }
+
+    fun toggleCctvScanner(open: Boolean? = null) {
+        _uiState.update {
+            it.copy(
+                isCctvScannerOpen = open ?: !it.isCctvScannerOpen,
+                isGeoJsonSheetOpen = false,
+                selectedZone = null,
+                selectedHaven = null,
+                selectedCamera = null,
+                selectedMvtFeature = null
+            )
+        }
+    }
+
+    fun toggleGeoJsonSheet(open: Boolean? = null) {
+        _uiState.update {
+            it.copy(
+                isGeoJsonSheetOpen = open ?: !it.isGeoJsonSheetOpen,
+                isCctvScannerOpen = false,
+                selectedZone = null,
+                selectedHaven = null,
+                selectedCamera = null,
+                selectedMvtFeature = null
+            )
+        }
+    }
+
+    fun loadBundledGeoJsonOverlays(context: Context) {
+        if (_uiState.value.geoJsonOverlays.isNotEmpty()) return
+        val bundled = GeoJsonTacticalLoader.loadBundledOverlays(context.applicationContext)
+        if (bundled.isNotEmpty()) {
+            _uiState.update { state ->
+                val customOnly = state.geoJsonOverlays.filter { it.isCustomImported }
+                state.copy(geoJsonOverlays = bundled + customOnly)
+            }
+        }
+    }
+
+    fun toggleGeoJsonLayer(layerId: String) {
+        _uiState.update { state ->
+            state.copy(
+                geoJsonOverlays = state.geoJsonOverlays.map {
+                    if (it.id == layerId) it.copy(isEnabled = !it.isEnabled) else it
+                }
+            )
+        }
+    }
+
+    fun importCustomGeoJson(fileName: String, rawJson: String): Boolean {
+        val id = "custom_geojson_${System.currentTimeMillis()}"
+        val overlay = GeoJsonTacticalLoader.parseGeoJsonToMvtOverlay(
+            id = id,
+            fallbackName = fileName.substringBeforeLast('.'),
+            fileName = fileName,
+            rawJson = rawJson,
+            isCustomImported = true
+        ) ?: return false
+
+        _uiState.update { state ->
+            state.copy(
+                geoJsonOverlays = listOf(overlay) + state.geoJsonOverlays,
+                showMvtGeoJsonOverlay = true
+            )
+        }
+        return true
+    }
+
+    fun deleteCustomGeoJsonOverlay(layerId: String) {
+        _uiState.update { state ->
+            state.copy(geoJsonOverlays = state.geoJsonOverlays.filterNot { it.id == layerId })
+        }
     }
 
     fun setOriginCity(city: String) {
-        _uiState.update {
-            val newRoute = TacticalDataProvider.calculateEvacuationRoute(
-                originCityName = city,
-                destinationHavenId = it.destinationHavenId,
-                standoffBufferKm = it.standoffBufferKm
+        _uiState.update { state ->
+            val coords = if (city.equals("Live GPS", ignoreCase = true) && latestRealGpsMovement != null) {
+                Pair(latestRealGpsMovement!!.lat, latestRealGpsMovement!!.lng)
+            } else {
+                val cityCoords = TacticalDataProvider.CITIES.firstOrNull { c -> c.name.equals(city, ignoreCase = true) }
+                if (cityCoords != null) Pair(cityCoords.lat, cityCoords.lng) else state.userCoordinates
+            }
+            val movement = state.userMovement.copy(lat = coords.first, lng = coords.second)
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = coords.first,
+                startLng = coords.second,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = state.destinationHavenId,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = state.standoffBufferKm
             )
-            val cityCoords = TacticalDataProvider.CITIES.firstOrNull { c -> c.name.equals(city, ignoreCase = true) }
-            val coords = if (cityCoords != null) Pair(cityCoords.lat, cityCoords.lng) else it.userCoordinates
-            val movement = it.userMovement.copy(lat = coords.first, lng = coords.second)
-            it.copy(originCity = city, activeRoute = newRoute, userCoordinates = coords, userMovement = movement)
+            val exposure = TacticalPathfinder.evaluateCctvExposure(coords.first, coords.second, state.cameras)
+            state.copy(
+                originCity = city,
+                userCoordinates = coords,
+                userMovement = movement,
+                activeRoute = newRoute,
+                surveillanceExposure = exposure
+            )
         }
     }
 
-    fun setDestinationHaven(havenId: String) {
-        _uiState.update {
-            val newRoute = TacticalDataProvider.calculateEvacuationRoute(
-                originCityName = it.originCity,
-                destinationHavenId = havenId,
-                standoffBufferKm = it.standoffBufferKm
+    fun setDestinationHaven(havenId: String?) {
+        _uiState.update { state ->
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = havenId,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = state.standoffBufferKm
             )
-            it.copy(destinationHavenId = havenId, activeRoute = newRoute)
+            state.copy(destinationHavenId = havenId, activeRoute = newRoute)
         }
     }
 
-    fun setStandoffBuffer(bufferKm: Double) {
-        _uiState.update {
-            val newRoute = TacticalDataProvider.calculateEvacuationRoute(
-                originCityName = it.originCity,
-                destinationHavenId = it.destinationHavenId,
-                standoffBufferKm = bufferKm
+    fun setStandoffBuffer(weight: Double) {
+        _uiState.update { state ->
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = state.destinationHavenId,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = weight
             )
-            it.copy(standoffBufferKm = bufferKm, activeRoute = newRoute)
+            state.copy(standoffBufferKm = weight, activeRoute = newRoute)
+        }
+    }
+
+    fun toggleAvoidCctv() {
+        _uiState.update { state ->
+            val nextAvoid = !state.avoidCctvCameras
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = state.destinationHavenId,
+                avoidCctv = nextAvoid,
+                threatWeight = state.standoffBufferKm
+            )
+            state.copy(avoidCctvCameras = nextAvoid, activeRoute = newRoute)
+        }
+    }
+
+    fun calculateNearestSafeWalk() {
+        _uiState.update { state ->
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = null,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = state.standoffBufferKm
+            )
+            state.copy(
+                destinationHavenId = null,
+                activeRoute = newRoute,
+                activeTab = MainNavTab.MAP,
+                isPathfinderExpanded = false
+            )
         }
     }
 
     fun planBypassForZone(zone: ThreatZone) {
-        _uiState.update {
-            val newBuffer = (zone.bypassBufferKm + 15.0).coerceIn(20.0, 60.0)
-            val newRoute = TacticalDataProvider.calculateEvacuationRoute(
-                originCityName = it.originCity,
-                destinationHavenId = it.destinationHavenId,
-                standoffBufferKm = newBuffer
+        _uiState.update { state ->
+            val boostedWeight = (state.standoffBufferKm + 10.0).coerceIn(15.0, 50.0)
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = state.destinationHavenId,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = boostedWeight
             )
-            it.copy(
-                standoffBufferKm = newBuffer,
+            state.copy(
+                standoffBufferKm = boostedWeight,
                 activeRoute = newRoute,
                 selectedZone = null,
                 isPathfinderExpanded = true
@@ -139,13 +353,18 @@ class TacticalViewModel : ViewModel() {
     }
 
     fun setDestinationAndCalculate(haven: SafeHaven) {
-        _uiState.update {
-            val newRoute = TacticalDataProvider.calculateEvacuationRoute(
-                originCityName = it.originCity,
-                destinationHavenId = haven.id,
-                standoffBufferKm = it.standoffBufferKm
+        _uiState.update { state ->
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = state.userMovement.lat,
+                startLng = state.userMovement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = haven.id,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = state.standoffBufferKm
             )
-            it.copy(
+            state.copy(
                 destinationHavenId = haven.id,
                 activeRoute = newRoute,
                 selectedHaven = null,
@@ -187,18 +406,23 @@ class TacticalViewModel : ViewModel() {
         viewModelScope.launch {
             val last = locationHelper?.getLastKnownLocation()
             if (last != null) {
-                updateLocation(last)
+                latestRealGpsMovement = last
+                if (_uiState.value.originCity == "Live GPS") {
+                    updateLocation(last)
+                }
             }
 
             locationHelper?.trackUserMovement(intervalMs = 3000L)?.collect { movement ->
-                updateLocation(movement)
+                latestRealGpsMovement = movement
+                if (_uiState.value.originCity == "Live GPS" || _uiState.value.followAgentOnMap) {
+                    updateLocation(movement)
+                }
             }
         }
     }
 
     private fun updateLocation(movement: UserMovementState) {
         _uiState.update { state ->
-            // Check proximity to any active threat zone
             var warning: String? = null
             for (zone in state.threatZones) {
                 val dist = TacticalDataProvider.calculateDistanceKm(
@@ -214,11 +438,25 @@ class TacticalViewModel : ViewModel() {
                 }
             }
 
+            val exposure = TacticalPathfinder.evaluateCctvExposure(movement.lat, movement.lng, state.cameras)
+            val newRoute = TacticalPathfinder.findSafestWalkingRoute(
+                startLat = movement.lat,
+                startLng = movement.lng,
+                safeHavens = state.safeHavens,
+                heatmapPoints = state.heatmapPoints,
+                cameras = state.cameras,
+                targetSafeHavenId = state.destinationHavenId,
+                avoidCctv = state.avoidCctvCameras,
+                threatWeight = state.standoffBufferKm
+            )
+
             val coords = Pair(movement.lat, movement.lng)
             state.copy(
                 userMovement = movement,
                 userCoordinates = coords,
-                threatWarning = warning
+                threatWarning = warning,
+                surveillanceExposure = exposure,
+                activeRoute = newRoute
             )
         }
     }
@@ -255,7 +493,6 @@ class TacticalViewModel : ViewModel() {
         )
 
         _uiState.update { state ->
-            // Also generate a live incident from this newly linked custom source!
             val newIncident = LiveIncident(
                 id = "inc_custom_${System.currentTimeMillis()}",
                 minutesAgo = 1,
