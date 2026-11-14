@@ -1,0 +1,116 @@
+{
+  "type": "FeatureCollection",
+  "name": "iran_theater_threat_zones",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gj_zone_hormuz_exclusion",
+        "name": "Strait of Hormuz Naval Exclusion Box",
+        "sector_code": "GEO-HZ-01",
+        "threat_level": "CRITICAL",
+        "category": "MARITIME_INTERDICTION",
+        "casualty_risk": "EXTREME (94%)",
+        "bypass_buffer_km": 45,
+        "stroke": "#FF2A2A",
+        "fill": "#FF2A2A",
+        "notes": "Active anti-ship missile & fast-attack craft killbox across Strait approaches. Maritime civilian transit suspended."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [55.6000, 27.1500],
+            [57.1000, 27.0500],
+            [57.2500, 26.2500],
+            [56.2500, 26.1500],
+            [55.4500, 26.6000],
+            [55.6000, 27.1500]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gj_zone_natanz_airdefense",
+        "name": "Natanz / Kashan SAM & EW Dome",
+        "sector_code": "GEO-SAM-02",
+        "threat_level": "CRITICAL",
+        "category": "AIR_DEFENSE_RADAR",
+        "casualty_risk": "LETHAL (91%)",
+        "bypass_buffer_km": 40,
+        "stroke": "#FF2A2A",
+        "fill": "#FF2A2A",
+        "notes": "Layered S-300 / Bavar-373 engagement envelope with heavy GPS spoofing and kinetic strike risk."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [51.4000, 34.0500],
+            [52.4500, 34.0500],
+            [52.5500, 33.2500],
+            [51.5000, 33.1500],
+            [51.2500, 33.6000],
+            [51.4000, 34.0500]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gj_zone_isfahan_corridor",
+        "name": "Isfahan Tactical Drone & Airfield Belt",
+        "sector_code": "GEO-ISF-03",
+        "threat_level": "HIGH",
+        "category": "KINETIC_STRIKE",
+        "casualty_risk": "SEVERE (78%)",
+        "bypass_buffer_km": 28,
+        "stroke": "#FF6B00",
+        "fill": "#FF6B00",
+        "notes": "Contested airspace & military industrial corridor; avoid eastern highway junctions."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [51.5500, 32.8800],
+            [52.2000, 32.8800],
+            [52.2500, 32.4500],
+            [51.6000, 32.4000],
+            [51.5500, 32.8800]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gj_zone_khuzestan_border",
+        "name": "Khuzestan Armored Staging Perimeter",
+        "sector_code": "GEO-KHZ-04",
+        "threat_level": "MODERATE",
+        "category": "MILITARY_LOCKDOWN",
+        "casualty_risk": "ELEVATED (56%)",
+        "bypass_buffer_km": 22,
+        "stroke": "#FFB300",
+        "fill": "#FFB300",
+        "notes": "Restricted checkpoint belt along western marshlands; night curfew strictly enforced."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [47.9000, 31.6500],
+            [48.9500, 31.6500],
+            [49.0500, 30.8500],
+            [48.0500, 30.7500],
+            [47.9000, 31.6500]
+          ]
+        ]
+      }
+    }
+  ]
+}

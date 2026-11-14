@@ -5,9 +5,12 @@ import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import com.example.model.MapVisualMode
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.MapTileProviderArray
 import org.osmdroid.tileprovider.MapTileProviderBase
@@ -17,31 +20,35 @@ import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.overlay.TilesOverlay
 import java.io.File
 
 /**
  * Configures OsmDroid strictly with app-private directories (filesDir / cacheDir)
  * so zero external storage permissions are required (Play Policy compliant),
- * and provides free non-API-key tile sources plus an offline vector-grid generator.
+ * provides free non-API-key tile sources, an offline vector-grid generator,
+ * and custom God's Eye night-mode tile styling filters.
  */
 object OsmDroidConfig {
 
     @Volatile
-    private var initialized = false
+    private var initializedFilesDir: String? = null
 
     fun ensureInitialized(context: Context) {
-        if (initialized) return
+        val appCtx = context.applicationContext
+        val targetFilesDir = appCtx.filesDir.absolutePath
+        if (initializedFilesDir == targetFilesDir) return
         synchronized(this) {
-            if (initialized) return
-            val appCtx = context.applicationContext
+            if (initializedFilesDir == targetFilesDir) return
             val config = Configuration.getInstance()
+            val prefs = appCtx.getSharedPreferences("osmdroid_tactical_prefs", Context.MODE_PRIVATE)
+            config.load(appCtx, prefs)
             config.userAgentValue = "AegisEyeTactical/1.0 (Android Crisis Navigation)"
             val baseDir = File(appCtx.filesDir, "osmdroid").apply { mkdirs() }
             val cacheDir = File(appCtx.cacheDir, "osmdroid/tiles").apply { mkdirs() }
             config.osmdroidBasePath = baseDir
             config.osmdroidTileCache = cacheDir
-            config.load(appCtx, appCtx.getSharedPreferences("osmdroid_tactical_prefs", Context.MODE_PRIVATE))
-            initialized = true
+            initializedFilesDir = targetFilesDir
         }
     }
 
@@ -91,6 +98,79 @@ object OsmDroidConfig {
         FreeMapProvider.ESRI_SATELLITE -> ESRI_SATELLITE_SOURCE
         FreeMapProvider.OSM_STANDARD -> TileSourceFactory.MAPNIK
         FreeMapProvider.BUILT_IN_OFFLINE -> OFFLINE_VECTOR_GRID_SOURCE
+    }
+
+    /**
+     * Builds the custom God's Eye night-mode [ColorMatrix] for the active [mapMode] & [provider]:
+     * - Daylight OSM_STANDARD tiles are inverted into deep obsidian-navy with crisp slate-cyan roads.
+     * - CARTO_DARK tiles receive deep midnight-cyan contrast grading aligned with the ISAC palette.
+     * - ESRI_SATELLITE tiles receive darkened night-recon grading to preserve tactical HUD legibility.
+     * - FLIR_THERMAL applies a high-contrast thermal imaging signature.
+     */
+    fun createNightModeColorMatrix(
+        mapMode: MapVisualMode,
+        provider: FreeMapProvider
+    ): ColorMatrix? {
+        return when (mapMode) {
+            MapVisualMode.FLIR_THERMAL -> ColorMatrix(
+                floatArrayOf(
+                    1.45f, 0f, 0f, 0f, 20f,
+                    0f, 0.35f, 0.2f, 0f, 0f,
+                    0.4f, 0f, 1.1f, 0f, 25f,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            MapVisualMode.SATELLITE_RECON -> ColorMatrix(
+                floatArrayOf(
+                    0.62f, 0f, 0f, 0f, -6f,
+                    0f, 0.68f, 0f, 0f, 2f,
+                    0f, 0f, 0.78f, 0f, 14f,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            MapVisualMode.TACTICAL_HUD -> when (provider) {
+                FreeMapProvider.OSM_STANDARD -> ColorMatrix(
+                    floatArrayOf(
+                        -0.88f, 0f, 0f, 0f, 235f,
+                        0f, -0.84f, 0f, 0f, 232f,
+                        0f, 0f, -0.78f, 0f, 225f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                FreeMapProvider.CARTO_DARK -> ColorMatrix(
+                    floatArrayOf(
+                        0.88f, 0f, 0f, 0f, -6f,
+                        0f, 1.04f, 0f, 0f, 3f,
+                        0f, 0f, 1.20f, 0f, 12f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                FreeMapProvider.ESRI_SATELLITE -> ColorMatrix(
+                    floatArrayOf(
+                        0.55f, 0f, 0f, 0f, -8f,
+                        0f, 0.65f, 0f, 0f, 2f,
+                        0f, 0f, 0.78f, 0f, 14f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                FreeMapProvider.BUILT_IN_OFFLINE -> null
+            }
+        }
+    }
+
+    /**
+     * Applies God's Eye night-mode styling to OsmDroid's [TilesOverlay], including dark obsidian
+     * tile-loading background/grid colors so uncached regions never flash white.
+     */
+    fun configureNightModeTilesOverlay(
+        tilesOverlay: TilesOverlay,
+        mapMode: MapVisualMode,
+        provider: FreeMapProvider
+    ) {
+        tilesOverlay.loadingBackgroundColor = Color.parseColor("#0B0E14")
+        tilesOverlay.loadingLineColor = Color.parseColor("#182534")
+        val matrix = createNightModeColorMatrix(mapMode, provider)
+        tilesOverlay.setColorFilter(matrix?.let { ColorMatrixColorFilter(it) })
     }
 
     fun createOfflineProceduralProvider(context: Context): MapTileProviderBase {

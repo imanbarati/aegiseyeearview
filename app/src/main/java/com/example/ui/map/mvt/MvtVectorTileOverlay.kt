@@ -36,6 +36,7 @@ class MvtVectorTileOverlay(
 
     private var activeOverlays: List<TacticalGeoJsonOverlay> = emptyList()
     private var selectedFeatureKey: String? = null
+    private var renderPolygons: Boolean = true
 
     private val reusePoint = Point()
     private val polyPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
@@ -65,10 +66,12 @@ class MvtVectorTileOverlay(
 
     fun updateOverlays(
         overlays: List<TacticalGeoJsonOverlay>,
-        selected: MvtFeatureSelection?
+        selected: MvtFeatureSelection?,
+        renderPolygons: Boolean = true
     ) {
         activeOverlays = overlays.filter { it.isEnabled }
         selectedFeatureKey = selected?.let { "${it.sourceFileName}:${it.layerName}:${it.feature.id}" }
+        this.renderPolygons = renderPolygons
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
@@ -84,6 +87,7 @@ class MvtVectorTileOverlay(
 
                     when (feature.type) {
                         MvtGeometryType.POLYGON -> {
+                            if (!renderPolygons) continue
                             polyPath.reset()
                             var centroidX = 0f
                             var centroidY = 0f
@@ -200,8 +204,13 @@ class MvtVectorTileOverlay(
         val tapX = e.x
         val tapY = e.y
 
-        // Check Points first, then LineStrings, then Polygons
-        for (targetType in listOf(MvtGeometryType.POINT, MvtGeometryType.LINESTRING, MvtGeometryType.POLYGON)) {
+        // Check Points first, then LineStrings, then Polygons (when MVT owns polygon drawing)
+        val targetTypes = if (renderPolygons) {
+            listOf(MvtGeometryType.POINT, MvtGeometryType.LINESTRING, MvtGeometryType.POLYGON)
+        } else {
+            listOf(MvtGeometryType.POINT, MvtGeometryType.LINESTRING)
+        }
+        for (targetType in targetTypes) {
             for (overlay in activeOverlays) {
                 val tile = overlay.mvtTile
                 for (layer in tile.layers) {

@@ -152,7 +152,14 @@ data class LiveIncident(
     val severity: ThreatLevel,
     val sourceAgency: String,
     val lat: Double,
-    val lng: Double
+    val lng: Double,
+    val sourceUrl: String = "",
+    val publishedAtMs: Long = System.currentTimeMillis(),
+    val credibilityScore: Int = 70,
+    val verificationStatus: String = "FETCHED",
+    val corroboratedByCount: Int = 1,
+    val geoPrecision: String = "SOURCE_COORDS",
+    val disinformationRiskNote: String? = null
 )
 
 data class SurvivalProtocol(
@@ -175,6 +182,8 @@ enum class IntelSourceType(val displayName: String, val badge: String, val defau
     X_TWITTER("X / Twitter OSINT", "OSINT-X", "tag"),
     FEDIVERSE_MASTODON("Fediverse / Mastodon", "FEDIVERSE", "share"),
     RSS_FEED("RSS / Atom Feed", "RSS-WEB", "rss_feed"),
+    OPEN_API_JSON("Open Geo / OSINT API (USGS/GDELT/OpenSky)", "API-JSON", "public"),
+    DEEP_WEB_ONION("Deep Web / Tor Onion (.onion / Ahmia)", "TOR-DEEP", "security"),
     HOMEMADE_SDR("Homemade SDR (RTL-SDR / WebSDR)", "SDR-TCP", "settings_input_antenna"),
     RADIO_RADAR("Radio Radar (ADS-B / RF Spectrum)", "RF-RADAR", "radar")
 }
@@ -186,9 +195,12 @@ data class IntelSource(
     val endpointUrl: String,
     val frequencyMhz: Double? = null,
     val isEnabled: Boolean = true,
-    val status: String = "ONLINE - POLLING",
-    val signalStrengthDbm: Int = -58,
+    val status: String = "IDLE // READY TO FETCH",
+    val signalStrengthDbm: Int = 0,
     val itemsDetected: Int = 0,
     val description: String = "",
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    val lastFetchedMs: Long? = null,
+    val lastError: String? = null,
+    val requiresExternalBridge: Boolean = false
 )

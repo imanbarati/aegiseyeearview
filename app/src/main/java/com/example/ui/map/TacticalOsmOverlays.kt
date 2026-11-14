@@ -8,6 +8,7 @@ import android.graphics.Path
 import android.graphics.Point
 import android.view.MotionEvent
 import com.example.data.TacticalDataProvider
+import com.example.data.local.BreadcrumbEntity
 import com.example.location.UserMovementState
 import com.example.model.*
 import org.osmdroid.util.GeoPoint as OsmGeoPoint
@@ -19,8 +20,8 @@ import kotlin.math.sin
 
 /**
  * Native OsmDroid [Overlay] rendering core tactical elements (country perimeter, urban nodes,
- * threat dead zones, A* safest walking corridor, safe zones, live agent marker, and targeting reticle)
- * plus tap hit-testing for cameras, safe zones, dead zones, and cities.
+ * threat dead zones, A* safest walking corridor, safe zones, 50m temporary breadcrumb trail,
+ * live agent marker, SOS broadcast map pulse, and targeting reticle) plus tap hit-testing.
  */
 class TacticalOsmOverlay(
     private val onCameraTapped: (SurveillanceCamera) -> Unit,
@@ -34,6 +35,10 @@ class TacticalOsmOverlay(
     var safeHavens: List<SafeHaven> = emptyList()
     var cameras: List<SurveillanceCamera> = emptyList()
     var activeRoute: TacticalRoute? = null
+    var breadcrumbs: List<BreadcrumbEntity> = emptyList()
+    var showBreadcrumbs: Boolean = true
+    var isSosPulseActive: Boolean = false
+    var sosPulseCoords: Pair<Double, Double>? = null
     var userMovement: UserMovementState = UserMovementState(35.6892, 51.3890)
     var mapMode: MapVisualMode = MapVisualMode.TACTICAL_HUD
     var showDeadZones: Boolean = true
@@ -80,8 +85,19 @@ class TacticalOsmOverlay(
             drawSafeHavens(canvas, proj, w, h)
         }
 
+        // 5b. Temporary 50-meter movement Breadcrumb trail
+        if (showBreadcrumbs && breadcrumbs.isNotEmpty()) {
+            drawBreadcrumbs(canvas, proj, w, h)
+        }
+
         // 6. Live Agent Position & Bearing Vector
         drawAgentMarker(canvas, proj)
+
+        // 6b. High-visibility SOS Broadcast Shockwave Pulse
+        val sosCoords = sosPulseCoords
+        if (isSosPulseActive && sosCoords != null) {
+            drawSosPulse(canvas, proj, sosCoords.first, sosCoords.second)
+        }
 
         // 7. Targeting Reticle if item selected
         val coords = selectedCoords
@@ -250,6 +266,113 @@ class TacticalOsmOverlay(
             textPaint.textSize = 21f
             canvas.drawText("[+] ${haven.name.take(22)}", x - 60f, y - 24f, textPaint)
         }
+    }
+
+    private fun drawBreadcrumbs(
+        canvas: Canvas,
+        proj: org.osmdroid.views.Projection,
+        w: Float,
+        h: Float
+    ) {
+        val total = breadcrumbs.size
+        if (total == 0) return
+
+        val screenPoints = breadcrumbs.map { crumb ->
+            proj.toPixels(OsmGeoPoint(crumb.lat, crumb.lng), pt)
+            pt.x.toFloat() to pt.y.toFloat()
+        }
+
+        if (screenPoints.size >= 2) {
+            path.reset()
+            screenPoints.forEachIndexed { idx, (x, y) ->
+                if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            strokePaint.color = Color.argb(175, 255, 179, 0)
+            strokePaint.strokeWidth = 4.2f
+            strokePaint.strokeCap = Paint.Cap.ROUND
+            strokePaint.strokeJoin = Paint.Join.ROUND
+            strokePaint.pathEffect = DashPathEffect(floatArrayOf(12f, 8f), -dashOffset * 0.5f)
+            canvas.drawPath(path, strokePaint)
+        }
+
+        strokePaint.pathEffect = null
+        breadcrumbs.forEachIndexed { idx, crumb ->
+            val (x, y) = screenPoints[idx]
+            if (x < -80f || x > w + 80f || y < -80f || y > h + 80f) return@forEachIndexed
+
+            val recencyFraction = if (total <= 1) 1f else (idx.toFloat() / (total - 1).toFloat())
+            val alpha = (115 + (recencyFraction * 140f)).toInt().coerceIn(100, 255)
+
+            fillPaint.color = Color.argb((alpha * 0.35f).toInt(), 0, 229, 255)
+            canvas.drawCircle(x, y, 13f, fillPaint)
+
+            strokePaint.color = Color.argb(alpha, 255, 179, 0)
+            strokePaint.strokeWidth = 2.4f
+            canvas.drawCircle(x, y, 8.5f, strokePaint)
+
+            fillPaint.color = Color.argb(alpha, 0, 229, 255)
+            canvas.drawCircle(x, y, 4.5f, fillPaint)
+
+            val showLabel = idx == 0 || idx == total - 1 || idx % 3 == 0
+            if (showLabel) {
+                textPaint.color = Color.argb(alpha, 255, 200, 64)
+                textPaint.textSize = 18f
+                canvas.drawText("#${crumb.sequenceNumber} (50m)", x + 11f, y + 6f, textPaint)
+            }
+        }
+    }
+
+    private fun drawSosPulse(
+        canvas: Canvas,
+        proj: org.osmdroid.views.Projection,
+        lat: Double,
+        lng: Double
+    ) {
+        proj.toPixels(OsmGeoPoint(lat, lng), pt)
+        val cx = pt.x.toFloat()
+        val cy = pt.y.toFloat()
+
+        strokePaint.pathEffect = null
+
+        // 3 staggered concentric expanding shockwaves for unmistakable SOS map visibility
+        for (ringIdx in 0 until 3) {
+            val phase = (pulseProgress + ringIdx * 0.33f) % 1.0f
+            val radius = 26f + phase * 115f
+            val alpha = ((1f - phase) * 235f).toInt().coerceIn(25, 235)
+
+            fillPaint.color = Color.argb((alpha * 0.22f).toInt(), 255, 42, 42)
+            canvas.drawCircle(cx, cy, radius, fillPaint)
+
+            strokePaint.color = when (ringIdx) {
+                0 -> Color.argb(alpha, 255, 42, 42)
+                1 -> Color.argb(alpha, 255, 107, 0)
+                else -> Color.argb(alpha, 255, 255, 255)
+            }
+            strokePaint.strokeWidth = 4.2f - ringIdx * 0.8f
+            canvas.drawCircle(cx, cy, radius, strokePaint)
+        }
+
+        // Core pulsing SOS diamond beacon
+        val d = 18f + 5f * pulseProgress
+        path.reset()
+        path.moveTo(cx, cy - d)
+        path.lineTo(cx + d, cy)
+        path.lineTo(cx, cy + d)
+        path.lineTo(cx - d, cy)
+        path.close()
+        fillPaint.color = Color.argb(230, 255, 42, 42)
+        canvas.drawPath(path, fillPaint)
+        strokePaint.color = Color.WHITE
+        strokePaint.strokeWidth = 2.6f
+        canvas.drawPath(path, strokePaint)
+
+        // High-contrast SOS label above beacon
+        textPaint.color = Color.parseColor("#FF2A2A")
+        textPaint.textSize = 23f
+        canvas.drawText("SOS BROADCAST ACTIVE", cx - 96f, cy - 34f, textPaint)
+        textPaint.color = Color.WHITE
+        textPaint.textSize = 18f
+        canvas.drawText("${String.format("%.4f", lat)}°N, ${String.format("%.4f", lng)}°E", cx - 76f, cy - 14f, textPaint)
     }
 
     private fun drawAgentMarker(canvas: Canvas, proj: org.osmdroid.views.Projection) {

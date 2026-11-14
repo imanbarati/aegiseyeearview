@@ -361,75 +361,8 @@ object TacticalDataProvider {
         )
     )
 
-    // Live Tactical Incidents (Simulating real-time ISAC recon feed)
-    val LIVE_INCIDENTS = listOf(
-        LiveIncident(
-            id = "inc_01",
-            minutesAgo = 2,
-            sector = "SECTOR 04-NATANZ",
-            title = "Secondary Strike Detected on Subterranean Bunkers",
-            description = "Seismic sensors registered magnitude 2.8 ground vibration. Air defense radar arrays offline. Thick smoke plume drifting south-east.",
-            severity = ThreatLevel.CRITICAL_ALPHA,
-            sourceAgency = "ORBITAL RECON (ISAC-SAT 4)",
-            lat = 33.5119,
-            lng = 51.9167
-        ),
-        LiveIncident(
-            id = "inc_02",
-            minutesAgo = 7,
-            sector = "SECTOR 01-TEHRAN",
-            title = "GPS Spoofing Envelope Extended Over Freeway 7",
-            description = "Civilian navigation systems experiencing 12km position offset error. Use manual topographic maps and landmark navigation.",
-            severity = ThreatLevel.HIGH_BRAVO,
-            sourceAgency = "SIGINT TELEMETRY",
-            lat = 35.4500,
-            lng = 51.2500
-        ),
-        LiveIncident(
-            id = "inc_03",
-            minutesAgo = 15,
-            sector = "SECTOR 07-ISFAHAN",
-            title = "Martial Law Blockades on Isfahan Ring Expressway",
-            description = "Armored personnel carriers obstructing traffic at North and East junctions. Evacuation convoys diverted through Najafabad.",
-            severity = ThreatLevel.CRITICAL_ALPHA,
-            sourceAgency = "CIVIL DEFENSE RECON",
-            lat = 32.7000,
-            lng = 51.5500
-        ),
-        LiveIncident(
-            id = "inc_04",
-            minutesAgo = 28,
-            sector = "NW CORRIDOR (KHOY)",
-            title = "Razi Border Corridor Escort Convoys Running on Schedule",
-            description = "Turkish border authorities confirmed passage of 240 civilian vehicles in the last hour. Fuel cache operational at KM 42.",
-            severity = ThreatLevel.CAUTION_DELTA,
-            sourceAgency = "UNHCR COURIER NET",
-            lat = 38.5500,
-            lng = 44.9500
-        ),
-        LiveIncident(
-            id = "inc_05",
-            minutesAgo = 44,
-            sector = "SECTOR 12-HORMUZ",
-            title = "High Velocity Projectile Warning in Coastal Strait",
-            description = "Commercial shipping instructed to maintain 40 nautical mile standoff from Bandar Abbas naval docks.",
-            severity = ThreatLevel.HIGH_BRAVO,
-            sourceAgency = "MARITIME ADVISORY",
-            lat = 27.0500,
-            lng = 56.3500
-        ),
-        LiveIncident(
-            id = "inc_06",
-            minutesAgo = 62,
-            sector = "ALBORZ NORTH",
-            title = "Caspian Shoreline Road (Highway 59) Cleared of Debris",
-            description = "Karaj-Chalus highway pass re-opened for civilian evacuation toward Caspian ports. Weather clear, visibility optimal.",
-            severity = ThreatLevel.MODERATE_CHARLIE,
-            sourceAgency = "ROAD POLICE HIGHWAY DISPATCH",
-            lat = 36.1000,
-            lng = 51.3000
-        )
-    )
+    // Live SitRep starts empty — populated strictly from real fetched OSINT/RSS/API/Bitchat streams (never fabricated).
+    val LIVE_INCIDENTS: List<LiveIncident> = emptyList()
 
     // Emergency Survival Protocols
     val SURVIVAL_PROTOCOLS = listOf(
@@ -682,64 +615,99 @@ object TacticalDataProvider {
         return r * c
     }
 
-    // Default verified OSINT, Fediverse, RSS, and Homemade SDR Radio Radar sources
+    // Real, queryable OSINT, Fediverse, RSS, Open API, Deep Web Search, and SDR source endpoints
     val DEFAULT_INTEL_SOURCES = listOf(
         IntelSource(
-            id = "src_x_heyitsmyturn",
-            name = "@hey_itsmyturn OSINT Monitor",
-            type = IntelSourceType.X_TWITTER,
-            endpointUrl = "https://x.com/hey_itsmyturn?lang=en",
+            id = "src_usgs_seismic",
+            name = "USGS Real-Time Seismic GeoJSON",
+            type = IntelSourceType.OPEN_API_JSON,
+            endpointUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
             isEnabled = true,
-            status = "STREAMING (LIVE OSINT)",
-            signalStrengthDbm = -52,
-            itemsDetected = 38,
-            description = "Middle East kinetic conflict monitor, UAV/ballistic launches, satellite pass updates, air defense telemetry."
-        ),
-        IntelSource(
-            id = "src_fediverse_crisis",
-            name = "Fediverse #IranCrisis / Mastodon",
-            type = IntelSourceType.FEDIVERSE_MASTODON,
-            endpointUrl = "https://mastodon.social/tags/irancrisis.rss",
-            isEnabled = true,
-            status = "FEDERATED (POLLING 20s)",
-            signalStrengthDbm = -60,
-            itemsDetected = 24,
-            description = "Decentralized citizen reports, civilian shelter conditions, road blockades, and local fuel availability."
+            status = "STANDBY // REAL GEOJSON API",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Live U.S. Geological Survey M2.5+ 24h earthquake GeoJSON feed with verified exact latitude/longitude and timestamps."
         ),
         IntelSource(
             id = "src_rss_humanitarian",
-            name = "UNHCR & Red Crescent Emergency Feed",
+            name = "ReliefWeb UN Humanitarian Updates",
             type = IntelSourceType.RSS_FEED,
             endpointUrl = "https://reliefweb.int/updates/rss.xml",
             isEnabled = true,
-            status = "CONNECTED (RSS/ATOM)",
-            signalStrengthDbm = -45,
-            itemsDetected = 17,
-            description = "Official humanitarian corridor bulletins, border processing speeds, medical evacuation airlift requests."
+            status = "STANDBY // OFFICIAL RSS",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Live UN OCHA ReliefWeb emergency & humanitarian situation reports (RSS 2.0)."
+        ),
+        IntelSource(
+            id = "src_gdelt_live",
+            name = "GDELT Global Conflict & Crisis API",
+            type = IntelSourceType.OPEN_API_JSON,
+            endpointUrl = "https://api.gdeltproject.org/api/v2/doc/doc?query=(emergency%20OR%20airstrike%20OR%20evacuation%20OR%20earthquake)%20sourcelang:english&mode=artlist&maxrecords=15&format=json",
+            isEnabled = true,
+            status = "STANDBY // LIVE GDELT API",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Real-time GDELT v2 open news & conflict telemetry API across verified international newsrooms."
+        ),
+        IntelSource(
+            id = "src_fediverse_crisis",
+            name = "Fediverse #OSINT Mastodon Feed",
+            type = IntelSourceType.FEDIVERSE_MASTODON,
+            endpointUrl = "https://mastodon.social/tags/osint.rss",
+            isEnabled = true,
+            status = "STANDBY // MASTODON RSS",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Live decentralized Mastodon RSS stream for #osint reports. Unverified social posts flagged for corroboration."
+        ),
+        IntelSource(
+            id = "src_x_heyitsmyturn",
+            name = "@hey_itsmyturn X / Nitter OSINT",
+            type = IntelSourceType.X_TWITTER,
+            endpointUrl = "https://x.com/hey_itsmyturn?lang=en",
+            isEnabled = true,
+            status = "STANDBY // NEEDS RSS BRIDGE",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "X profile link (@hey_itsmyturn). X blocks unauthenticated scraping — point to a Nitter/RSSHub RSS URL to poll live."
+        ),
+        IntelSource(
+            id = "src_ahmia_deepweb",
+            name = "Ahmia Deep Web Onion Search",
+            type = IntelSourceType.DEEP_WEB_ONION,
+            endpointUrl = "https://ahmia.fi/search/?q=osint+emergency+news",
+            isEnabled = false,
+            status = "STANDBY // DEEP WEB INDEX",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Clearnet index of Tor .onion hidden services. Enable Tor Orbot proxy (127.0.0.1:9050) to crawl .onion links directly."
         ),
         IntelSource(
             id = "src_homemade_sdr_adsb",
-            name = "Homemade RTL-SDR ADS-B Radar",
+            name = "Local RTL-SDR ADS-B (rtl_tcp)",
             type = IntelSourceType.HOMEMADE_SDR,
-            endpointUrl = "rtl_tcp://192.168.1.150:1234",
+            endpointUrl = "rtl_tcp://127.0.0.1:1234",
             frequencyMhz = 1090.00,
-            isEnabled = true,
-            status = "RF AGC LOCK // 1090 MHz",
-            signalStrengthDbm = -38,
-            itemsDetected = 9,
-            description = "Local RTL2832U SDR dongle capturing military transponders, tactical tankers, UAV orbits, and emergency squawks (7700)."
+            isEnabled = false,
+            status = "LOCAL HARDWARE // NOT CONNECTED",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Direct local RTL-SDR / dump1090 JSON or rtl_tcp endpoint. Requires local USB SDR bridge running on LAN/localhost.",
+            requiresExternalBridge = true
         ),
         IntelSource(
             id = "src_radio_radar_vhf",
-            name = "Radio Radar / Air Defense Scanner",
+            name = "Local Radio Radar Scanner",
             type = IntelSourceType.RADIO_RADAR,
-            endpointUrl = "sdr://local-radio/vhf",
+            endpointUrl = "http://127.0.0.1:8080/data/aircraft.json",
             frequencyMhz = 142.80,
-            isEnabled = true,
-            status = "SWEEPING (118-144 MHz)",
-            signalStrengthDbm = -42,
-            itemsDetected = 14,
-            description = "Local RF spectrum scanner monitoring emergency crisis dispatch, UN convoy escorts, and radar pulse detections."
+            isEnabled = false,
+            status = "LOCAL HARDWARE // NOT CONNECTED",
+            signalStrengthDbm = 0,
+            itemsDetected = 0,
+            description = "Local dump1090/tar1090 JSON or WebSDR endpoint for live RF aircraft & emergency beacon detections.",
+            requiresExternalBridge = true
         )
     )
 

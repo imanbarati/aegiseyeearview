@@ -1,14 +1,25 @@
 package com.example
 
 import com.example.data.TacticalDataProvider
+import com.example.data.local.SosBroadcastEntity
+import com.example.data.repository.BreadcrumbDistanceTracker
+import com.example.data.repository.EmergencyYellowPagePublisher
 import com.example.location.UserMovementState
 import com.example.model.CameraVulnerabilityStatus
 import com.example.model.GeoPoint
 import com.example.model.IntelSourceType
 import com.example.model.MapVisualMode
+import com.example.model.ThreatLevel
 import com.example.routing.TacticalPathfinder
+import com.example.sensor.CompassMath
+import com.example.service.GeoJsonThreatPolygon
+import com.example.service.ThreatGeofenceEvaluator
+import com.example.ui.map.DistanceMeasurementState
 import com.example.ui.map.FreeMapProvider
 import com.example.ui.map.MercatorViewport
+import com.example.ui.map.OfflineMapBackupExporter
+import com.example.ui.map.OsmTileDiskCacheManager
+import com.example.ui.map.TacticalRangefinderMath
 import com.example.ui.map.TacticalTileRepository
 import com.example.ui.map.TileCoord
 import com.example.ui.map.mvt.GeoJsonTacticalLoader
@@ -19,6 +30,8 @@ import com.example.ui.map.mvt.MvtInputLayer
 import com.example.ui.map.mvt.MvtParser
 import org.junit.Assert.*
 import org.junit.Test
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.MapTileIndex
 
 class ExampleUnitTest {
   @Test
@@ -258,5 +271,169 @@ class ExampleUnitTest {
     assertEquals(MvtGeometryType.POINT, decodedPoint.type)
     assertEquals(35.8045, decodedPoint.geoGeometries.first().first().lat, 0.002)
     assertEquals(51.4275, decodedPoint.geoGeometries.first().first().lng, 0.002)
+  }
+
+  @Test
+  fun testOsmTileDiskCacheBoundsCalculation() {
+    val tehranBounds = BoundingBox(35.82, 51.55, 35.58, 51.25)
+    val indices = OsmTileDiskCacheManager.calculateTileIndicesForBounds(
+      bounds = tehranBounds,
+      minZoom = 6,
+      maxZoom = 11,
+      maxTiles = 120
+    )
+    assertTrue("Should calculate tile indices for Tehran sector", indices.isNotEmpty())
+    assertTrue("Should enforce maxTiles cap", indices.size <= 120)
+    assertTrue(
+      "All tile indices must sit within requested zoom band Z6..Z11",
+      indices.all { MapTileIndex.getZoom(it) in 6..11 }
+    )
+  }
+
+  @Test
+  fun testCompassMathCircularSmoothingAndCardinals() {
+    // Wrap-around from 358 -> 2 degrees should step through 0 (not 180 South)
+    val wrapped = CompassMath.smoothHeadingDegrees(358f, 2f, alpha = 0.5f)
+    assertEquals(0f, wrapped, 0.01f)
+
+    val wrappedBack = CompassMath.smoothHeadingDegrees(2f, 358f, alpha = 0.5f)
+    assertEquals(0f, wrappedBack, 0.01f)
+
+    assertEquals("N", CompassMath.headingToCardinal(359f))
+    assertEquals("NE", CompassMath.headingToCardinal(45f))
+    assertEquals("E", CompassMath.headingToCardinal(90f))
+    assertEquals("SW", CompassMath.headingToCardinal(225f))
+
+    val northBearing = CompassMath.bearingBetweenDegrees(35.0, 51.0, 36.0, 51.0)
+    assertEquals(0f, northBearing, 1.0f)
+    val eastBearing = CompassMath.bearingBetweenDegrees(35.0, 51.0, 35.0, 52.0)
+    assertEquals(90f, eastBearing, 1.0f)
+  }
+
+  @Test
+  fun testThreatGeofencePointInPolygonAndHoleExclusion() {
+    val highZoneWithHole = GeoJsonThreatPolygon(
+      id = "gj_high_ring",
+      name = "High Intensity Ring",
+      sectorCode = "GEO-TST-1",
+      threatLevel = ThreatLevel.CRITICAL_ALPHA,
+      category = "AIR_DEFENSE",
+      notes = "Test ring with safe interior cutout",
+      casualtyRisk = "EXTREME",
+      bypassBufferKm = 25.0,
+      sourceFileName = "test.geojson",
+      outerRing = listOf(
+        GeoPoint(35.60, 51.30),
+        GeoPoint(35.60, 51.50),
+        GeoPoint(35.80, 51.50),
+        GeoPoint(35.80, 51.30),
+        GeoPoint(35.60, 51.30)
+      ),
+      holes = listOf(
+        listOf(
+          GeoPoint(35.66, 51.36),
+          GeoPoint(35.66, 51.44),
+          GeoPoint(35.74, 51.44),
+          GeoPoint(35.74, 51.36),
+          GeoPoint(35.66, 51.36)
+        )
+      ),
+      centerLat = 35.70,
+      centerLng = 51.40,
+      approxRadiusKm = 14.0,
+      approxAreaKm2 = 300.0,
+      strokeColorHex = "#FF2A2A",
+      fillColorHex = "#FF2A2A"
+    )
+
+    val moderateZone = highZoneWithHole.copy(
+      id = "gj_mod_zone",
+      sectorCode = "GEO-MOD-2",
+      threatLevel = ThreatLevel.MODERATE_CHARLIE,
+      holes = emptyList(),
+      intensity = 0.50f
+    )
+
+    // Inside outer ring of highZoneWithHole, outside hole -> triggers alert
+    val hitAlert = ThreatGeofenceEvaluator.evaluateGeoJsonEntry(35.62, 51.32, listOf(highZoneWithHole))
+    assertNotNull("Entering high-intensity GeoJSON perimeter should raise alert", hitAlert)
+    assertEquals("GEO-TST-1", hitAlert!!.sectorCode)
+
+    // Inside interior safe-corridor hole -> excluded cleanly
+    val insideHole = ThreatGeofenceEvaluator.evaluateGeoJsonEntry(35.70, 51.40, listOf(highZoneWithHole))
+    assertNull("Point inside safe polygon hole must not trigger alert", insideHole)
+
+    // Inside low/moderate zone only -> no high-intensity alert
+    val modAlert = ThreatGeofenceEvaluator.evaluateGeoJsonEntry(35.70, 51.40, listOf(moderateZone))
+    assertNull("Moderate intensity zone below threshold must not trigger high-intensity breach alert", modAlert)
+  }
+
+  @Test
+  fun testTwoPointRangefinderDistanceAndFormatting() {
+    val tehran = GeoPoint(35.6892, 51.3890)
+    val tajrish = GeoPoint(35.8045, 51.4275)
+    val state = DistanceMeasurementState(isActive = true, pointA = tehran, pointB = tajrish)
+
+    val distMeters = state.distanceMeters
+    assertNotNull(distMeters)
+    assertTrue("Tehran -> Tajrish geodesic distance should be ~12-15 km", distMeters!! in 12_000.0..15_000.0)
+    assertNotNull(state.bearingDegrees)
+    assertTrue("Northward leg should have bearing near 0..30 deg", state.bearingDegrees!! in 0f..30f)
+    assertTrue("Estimated walking time should exceed 120 mins", (state.walkMinutes ?: 0) >= 120)
+
+    assertEquals("750 M", TacticalRangefinderMath.formatPrimaryDistance(750.0))
+    assertEquals("0.750 KM", TacticalRangefinderMath.formatSecondaryDistance(750.0))
+    assertTrue(TacticalRangefinderMath.formatPrimaryDistance(13_450.0).endsWith("KM"))
+  }
+
+  @Test
+  fun testBreadcrumb50MeterThresholdAndSosShareFormatting() {
+    // 1. First anchor point always drops
+    val (firstDrop, firstDist) = BreadcrumbDistanceTracker.shouldDropBreadcrumb(null, 35.6892, 51.3890)
+    assertTrue("Initial point must drop breadcrumb", firstDrop)
+    assertEquals(0.0, firstDist, 0.01)
+
+    val anchor = GeoPoint(35.6892, 51.3890)
+    // 2. ~22m north (0.0002 deg lat ~ 22.2m) -> below 50m threshold
+    val (nearDrop, nearDist) = BreadcrumbDistanceTracker.shouldDropBreadcrumb(anchor, 35.6894, 51.3890)
+    assertFalse("Movement under 50m must not drop breadcrumb", nearDrop)
+    assertTrue("Distance should be between 15m and 35m", nearDist in 15.0..35.0)
+
+    // 3. ~66m north (0.0006 deg lat ~ 66.7m) -> exceeds 50m threshold
+    val (farDrop, farDist) = BreadcrumbDistanceTracker.shouldDropBreadcrumb(anchor, 35.6898, 51.3890)
+    assertTrue("Movement >= 50m must drop breadcrumb", farDrop)
+    assertTrue("Distance should exceed 50m", farDist >= 50.0)
+
+    // 4. Emergency Yellow Page / Share text formatting
+    val entry = SosBroadcastEntity(
+      id = 7L,
+      callsign = "VANGUARD-4",
+      lat = 35.68920,
+      lng = 51.38900,
+      accuracyMeters = 4f,
+      emergencyMessage = "Need immediate medical evac",
+      yellowPageEndpoint = "",
+      onlineSyncStatus = "SAVED LOCAL DB • SHARE READY",
+      onlineRecordUrl = null
+    )
+    val shareText = EmergencyYellowPagePublisher.formatShareText(entry)
+    assertTrue(shareText.contains("VANGUARD-4"))
+    assertTrue(shareText.contains("35.68920"))
+    assertTrue(shareText.contains("51.38900"))
+    assertTrue(shareText.contains("Need immediate medical evac"))
+    assertTrue(shareText.contains("openstreetmap.org"))
+  }
+
+  @Test
+  fun testOfflineBackupTileBoundsFiltering() {
+    val tehranBounds = BoundingBox(35.80, 51.50, 35.60, 51.30)
+    // Z10 X=658, Y=403 corresponds to Tehran (verified in MVT test above)
+    val tehranTile = MapTileIndex.getTileIndex(10, 658, 403)
+    // Far away Atlantic Ocean tile (Z10 X=100, Y=200)
+    val remoteTile = MapTileIndex.getTileIndex(10, 100, 200)
+
+    assertTrue("Tehran tile must match Tehran viewport bounds", OfflineMapBackupExporter.isTileInsideBounds(tehranTile, tehranBounds))
+    assertFalse("Remote ocean tile must be excluded from current area backup", OfflineMapBackupExporter.isTileInsideBounds(remoteTile, tehranBounds))
+    assertTrue(OfflineMapBackupExporter.defaultBackupFileName().endsWith(".zip"))
   }
 }

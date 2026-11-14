@@ -1,8 +1,11 @@
 package com.example.ui.map
 
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,6 +13,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,15 +22,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.local.BreadcrumbEntity
 import com.example.location.UserMovementState
 import com.example.model.*
+import com.example.sensor.CompassMath
+import com.example.sensor.CompassReading
+import com.example.service.GeoJsonThreatPolygon
+import com.example.service.ThreatGeofenceAlert
 import com.example.ui.map.mvt.MvtFeatureSelection
 import com.example.ui.map.mvt.MvtVectorTileOverlay
 import com.example.ui.map.mvt.TacticalGeoJsonOverlay
@@ -39,6 +52,7 @@ import org.osmdroid.util.GeoPoint as OsmGeoPoint
 import org.osmdroid.util.TileSystem
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.FolderOverlay
 import kotlin.math.max
 
 @Composable
@@ -48,6 +62,7 @@ fun TacticalMapView(
     safeHavens: List<SafeHaven>,
     cameras: List<SurveillanceCamera>,
     geoJsonOverlays: List<TacticalGeoJsonOverlay>,
+    geoJsonThreatPolygons: List<GeoJsonThreatPolygon>,
     activeRoute: TacticalRoute?,
     mapMode: MapVisualMode,
     freeProvider: FreeMapProvider,
@@ -57,29 +72,57 @@ fun TacticalMapView(
     showCctvOverlay: Boolean,
     showRadarSweep: Boolean,
     showMvtGeoJsonOverlay: Boolean,
+    showThreatPolygons: Boolean,
+    isNetworkOnline: Boolean,
+    tileCacheStats: TileCacheStats?,
     selectedZone: ThreatZone?,
     selectedHaven: SafeHaven?,
     selectedCamera: SurveillanceCamera?,
     selectedMvtFeature: MvtFeatureSelection?,
+    selectedThreatPolygon: GeoJsonThreatPolygon?,
     userMovement: UserMovementState,
     surveillanceExposure: UserSurveillanceExposure,
     followAgent: Boolean,
     onToggleFollowAgent: () -> Unit,
+    compassReading: CompassReading,
+    isHeadingLockEnabled: Boolean,
+    geoJsonIntrusionAlert: ThreatGeofenceAlert?,
+    isBackgroundSentinelRunning: Boolean,
+    isBackgroundSentinelArmed: Boolean,
+    distanceMeasurement: DistanceMeasurementState,
+    breadcrumbs: List<BreadcrumbEntity>,
+    showBreadcrumbs: Boolean,
+    isSosPulseActive: Boolean,
+    sosPulseCoords: Pair<Double, Double>?,
+    onToggleHeadingLock: () -> Unit,
+    onPlanBypassFromAlert: () -> Unit,
+    onDismissIntrusionAlert: () -> Unit,
+    onToggleSentinel: () -> Unit,
+    onMeasurePointTapped: (GeoPoint) -> Unit,
+    onToggleMeasureMode: () -> Unit,
+    onSnapMeasurePointAToGps: () -> Unit,
+    onClearMeasurePoints: () -> Unit,
+    onCloseMeasureMode: () -> Unit,
+    onOpenSosBroadcast: () -> Unit,
     threatWarning: String?,
     onZoneSelected: (ThreatZone) -> Unit,
     onHavenSelected: (SafeHaven) -> Unit,
     onCameraSelected: (SurveillanceCamera) -> Unit,
     onMvtFeatureSelected: (MvtFeatureSelection?) -> Unit,
+    onThreatPolygonSelected: (GeoJsonThreatPolygon?) -> Unit,
+    onBoundsChanged: (BoundingBox) -> Unit,
     onOpenCctvScanner: () -> Unit,
     onOpenGeoJsonManager: () -> Unit,
+    onOpenCacheManager: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val haptic = LocalHapticFeedback.current
 
-    // Ensure OsmDroid initializes strictly with private cache/files paths (zero storage permissions)
+    // Configure OsmDroid private directories & 30-day offline tile disk cache policy
     remember(context) {
-        OsmDroidConfig.ensureInitialized(context)
+        OsmTileDiskCacheManager.configureCachePolicy(context)
         true
     }
 
@@ -139,11 +182,22 @@ fun TacticalMapView(
         label = "DashOffset"
     )
 
-    // Keep latest callbacks for native OsmDroid overlays
+    // Latest callbacks for native OsmDroid overlays
     val latestOnCamera by rememberUpdatedState(onCameraSelected)
     val latestOnHaven by rememberUpdatedState(onHavenSelected)
     val latestOnZone by rememberUpdatedState(onZoneSelected)
     val latestOnMvtFeature by rememberUpdatedState(onMvtFeatureSelected)
+    val latestOnThreatPolygon by rememberUpdatedState(onThreatPolygonSelected)
+    val latestOnBoundsChanged by rememberUpdatedState(onBoundsChanged)
+    val latestOnMeasureTapped by rememberUpdatedState(onMeasurePointTapped)
+
+    val threatPolygonsFolder = remember { FolderOverlay() }
+
+    val measureOverlay = remember {
+        DistanceMeasurementOsmOverlay { tappedGeo ->
+            latestOnMeasureTapped(tappedGeo)
+        }
+    }
 
     val mvtOverlay = remember {
         MvtVectorTileOverlay { selection ->
@@ -191,8 +245,11 @@ fun TacticalMapView(
             maxZoomLevel = 18.0
             controller.setZoom(if (activeRoute?.isWalkingRoute == true) 11.4 else 6.0)
             controller.setCenter(OsmGeoPoint(userMovement.lat, userMovement.lng))
+            OsmDroidConfig.configureNightModeTilesOverlay(overlayManager.tilesOverlay, mapMode, activeProvider)
             overlays.add(mvtOverlay)
+            overlays.add(threatPolygonsFolder)
             overlays.add(tacticalOverlay)
+            overlays.add(measureOverlay)
         }
     }
 
@@ -208,9 +265,13 @@ fun TacticalMapView(
             heightPx = view.height.toFloat(),
             worldSizePxOverride = TileSystem.MapSize(zoom)
         )
+        try {
+            latestOnBoundsChanged(view.boundingBox)
+        } catch (_: Exception) {
+        }
     }
 
-    // Lifecycle & MapListener wiring for OsmDroid MapView
+    // Lifecycle & MapListener wiring
     DisposableEffect(lifecycleOwner, mapView) {
         val mapListener = object : MapListener {
             override fun onScroll(event: ScrollEvent?): Boolean {
@@ -248,13 +309,14 @@ fun TacticalMapView(
         }
     }
 
-    // Switch OsmDroid tile provider cleanly between Offline Procedural Vector and free online tiles
-    LaunchedEffect(activeProvider, mapMode) {
+    // Switch OsmDroid tile provider + automatically toggle data connection on connectivity loss
+    LaunchedEffect(activeProvider, mapMode, isNetworkOnline) {
         if (activeProvider == FreeMapProvider.BUILT_IN_OFFLINE) {
             mapView.setUseDataConnection(false)
             mapView.setTileProvider(OsmDroidConfig.createOfflineProceduralProvider(context))
         } else {
-            mapView.setUseDataConnection(true)
+            // When connectivity drops, disable network fetch so OsmDroid serves cached SQLite tiles seamlessly
+            mapView.setUseDataConnection(isNetworkOnline)
             val source = OsmDroidConfig.tileSourceFor(activeProvider)
             if (mapView.tileProvider !is MapTileProviderBasic) {
                 mapView.setTileProvider(MapTileProviderBasic(context, source))
@@ -263,34 +325,40 @@ fun TacticalMapView(
             }
         }
 
-        // Apply FLIR thermal color filter natively to OsmDroid tiles
-        val tilesOverlay = mapView.overlayManager.tilesOverlay
-        if (mapMode == MapVisualMode.FLIR_THERMAL) {
-            tilesOverlay.setColorFilter(
-                ColorMatrixColorFilter(
-                    ColorMatrix(
-                        floatArrayOf(
-                            1.45f, 0f, 0f, 0f, 20f,
-                            0f, 0.35f, 0.2f, 0f, 0f,
-                            0.4f, 0f, 1.1f, 0f, 25f,
-                            0f, 0f, 0f, 1f, 0f
-                        )
-                    )
-                )
-            )
-        } else {
-            tilesOverlay.setColorFilter(null)
-        }
+        // Apply custom God's Eye night-mode ColorMatrix & dark tile-loading grid styling
+        OsmDroidConfig.configureNightModeTilesOverlay(
+            tilesOverlay = mapView.overlayManager.tilesOverlay,
+            mapMode = mapMode,
+            provider = activeProvider
+        )
         mapView.invalidate()
     }
 
-    // Sync tactical & MVT overlay properties + invalidate OsmDroid canvas for smooth animation
+    // Rebuild clickable GeoJSON Threat Polygons when polygon list, toggle, or selection changes
+    LaunchedEffect(geoJsonThreatPolygons, showThreatPolygons, selectedThreatPolygon) {
+        ThreatPolygonOverlayBuilder.rebuildFolder(
+            folder = threatPolygonsFolder,
+            mapView = mapView,
+            polygons = geoJsonThreatPolygons,
+            showPolygons = showThreatPolygons,
+            selectedPolygonId = selectedThreatPolygon?.id,
+            onPolygonClick = { poly ->
+                selectedPointName = poly.name
+                selectedPointCoords = poly.centerLat to poly.centerLng
+                latestOnThreatPolygon(poly)
+            }
+        )
+        mapView.invalidate()
+    }
+
+    // Sync MVT vector overlay & tactical overlays + animation invalidation
     LaunchedEffect(
         threatZones,
         safeHavens,
         cameras,
         geoJsonOverlays,
         showMvtGeoJsonOverlay,
+        showThreatPolygons,
         activeRoute,
         userMovement,
         mapMode,
@@ -300,17 +368,27 @@ fun TacticalMapView(
         selectedPointName,
         selectedPointCoords,
         selectedMvtFeature,
+        distanceMeasurement,
+        breadcrumbs,
+        showBreadcrumbs,
+        isSosPulseActive,
+        sosPulseCoords,
         pulseProgress,
         dashOffset
     ) {
         mvtOverlay.updateOverlays(
             overlays = if (showMvtGeoJsonOverlay) geoJsonOverlays else emptyList(),
-            selected = selectedMvtFeature
+            selected = selectedMvtFeature,
+            renderPolygons = !showThreatPolygons
         )
         tacticalOverlay.threatZones = threatZones
         tacticalOverlay.safeHavens = safeHavens
         tacticalOverlay.cameras = cameras
         tacticalOverlay.activeRoute = activeRoute
+        tacticalOverlay.breadcrumbs = breadcrumbs
+        tacticalOverlay.showBreadcrumbs = showBreadcrumbs
+        tacticalOverlay.isSosPulseActive = isSosPulseActive
+        tacticalOverlay.sosPulseCoords = sosPulseCoords
         tacticalOverlay.userMovement = userMovement
         tacticalOverlay.mapMode = mapMode
         tacticalOverlay.showDeadZones = showDeadZones
@@ -320,7 +398,25 @@ fun TacticalMapView(
         tacticalOverlay.selectedCoords = selectedPointCoords
         tacticalOverlay.pulseProgress = pulseProgress
         tacticalOverlay.dashOffset = dashOffset
+        measureOverlay.measurementState = distanceMeasurement
+        measureOverlay.pulseProgress = pulseProgress
         mapView.invalidate()
+    }
+
+    // Sync OsmDroid map orientation when heading-up compass lock is active
+    LaunchedEffect(compassReading.headingDegrees, isHeadingLockEnabled) {
+        val targetOrientation = if (isHeadingLockEnabled) -compassReading.headingDegrees else 0f
+        if (kotlin.math.abs(mapView.mapOrientation - targetOrientation) > 0.5f) {
+            mapView.mapOrientation = targetOrientation
+            mapView.invalidate()
+        }
+    }
+
+    // Trigger Compose UI haptic confirmation on new GeoJSON intrusion alert
+    LaunchedEffect(geoJsonIntrusionAlert?.polygonId) {
+        if (geoJsonIntrusionAlert != null) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
     }
 
     // Follow agent location
@@ -355,7 +451,7 @@ fun TacticalMapView(
         }
     }
 
-    // Center reticle when selecting items from sheets/lists
+    // Center reticle when selecting items from sheets
     LaunchedEffect(selectedZone) {
         if (selectedZone != null) {
             selectedPointName = selectedZone.name
@@ -391,7 +487,7 @@ fun TacticalMapView(
                 }
             )
     ) {
-        // 1. OsmDroid Offline-Capable Base Map + MVT Vector + Tactical Overlays
+        // 1. OsmDroid Base Map + Clickable GeoJSON Threat Polygons + MVT Overlay + Tactical Overlay
         AndroidView(
             factory = { mapView },
             modifier = Modifier
@@ -399,7 +495,7 @@ fun TacticalMapView(
                 .testTag("osmdroid_tactical_map")
         )
 
-        // 2. Custom Compose Threat Heatmap, CCTV Optical FOV & Radar Sweep Overlay
+        // 2. Compose Threat Heatmap, CCTV Optical FOV & Radar Sweep Overlay
         ThreatHeatmapOverlay(
             heatmapPoints = heatmapPoints,
             cameras = cameras,
@@ -413,14 +509,70 @@ fun TacticalMapView(
             modifier = Modifier.fillMaxSize()
         )
 
+        // 2b. Pulsing red intrusion perimeter border when inside a high-intensity GeoJSON threat zone
+        if (geoJsonIntrusionAlert != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = (2.5f + pulseProgress * 2.5f).dp,
+                        color = ThreatCriticalRed.copy(alpha = 0.45f + pulseProgress * 0.45f)
+                    )
+                    .testTag("geojson_intrusion_perimeter_glow")
+            )
+        }
+
         // 3. Top-Left HUD Stack
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(12.dp),
+                .padding(12.dp)
+                .widthIn(max = 250.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (threatWarning != null) {
+            if (isSosPulseActive) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(ThreatCriticalRed.copy(alpha = 0.85f + pulseProgress * 0.14f))
+                        .border(1.5.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenSosBroadcast)
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                        .testTag("active_sos_hud_banner"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Campaign,
+                        contentDescription = "SOS Broadcast Active",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "SOS BROADCAST PULSING • TAP TO SHARE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = geoJsonIntrusionAlert != null,
+                enter = fadeIn() + slideInVertically(),
+                exit = fadeOut() + slideOutVertically()
+            ) {
+                geoJsonIntrusionAlert?.let { alert ->
+                    GeoJsonIntrusionAlertBanner(
+                        alert = alert,
+                        pulseProgress = pulseProgress,
+                        onPlanBypass = onPlanBypassFromAlert,
+                        onDismiss = onDismissIntrusionAlert
+                    )
+                }
+            }
+
+            if (threatWarning != null && geoJsonIntrusionAlert == null) {
                 Row(
                     modifier = Modifier
                         .background(ThreatCriticalRed.copy(alpha = 0.92f), RoundedCornerShape(8.dp))
@@ -457,7 +609,7 @@ fun TacticalMapView(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = if (activeRoute.isWalkingRoute) Icons.Default.DirectionsWalk else Icons.Default.Route,
+                        imageVector = if (activeRoute.isWalkingRoute) Icons.AutoMirrored.Filled.DirectionsWalk else Icons.Default.Route,
                         contentDescription = null,
                         tint = ThreatLowGreen,
                         modifier = Modifier.size(16.dp)
@@ -478,9 +630,9 @@ fun TacticalMapView(
                 }
             }
 
-            // Provider + MVT / GeoJSON Active Status Chip
+            // GeoJSON Threat Polygons & MVT Pill
+            val enabledPolys = geoJsonThreatPolygons.count { it.isEnabled }
             val enabledGeoJsonCount = geoJsonOverlays.count { it.isEnabled }
-            val totalMvtFeatures = geoJsonOverlays.filter { it.isEnabled }.sumOf { it.featureCount }
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -494,34 +646,147 @@ fun TacticalMapView(
             ) {
                 Icon(
                     imageVector = Icons.Default.Layers,
-                    contentDescription = "Manage GeoJSON MVT Overlays",
+                    contentDescription = "Manage GeoJSON & MVT Overlays",
                     tint = TacticalCyan,
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
-                    text = "OSMDROID: ${activeProvider.label.uppercase()} | MVT: $enabledGeoJsonCount LAYERS ($totalMvtFeatures FT)",
+                    text = "THREAT POLYS: $enabledPolys | MVT: $enabledGeoJsonCount LAYERS",
                     style = MaterialTheme.typography.labelSmall,
                     color = TacticalCyan
                 )
             }
+
+            // Disk Cache & Offline Failover Status Pill
+            val cacheColor = if (!isNetworkOnline) DivisionAmber else ThreatLowGreen
+            val tileText = if (!isNetworkOnline) {
+                "OFFLINE FAILOVER // DISK CACHE (${tileCacheStats?.estimatedTileCount ?: 0} TILES)"
+            } else {
+                val mb = tileCacheStats?.usedMb ?: 0.0
+                "DISK CACHE: ${tileCacheStats?.estimatedTileCount ?: 0} TILES (${String.format("%.1f", mb)} MB)"
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(TacticalSurface.copy(alpha = 0.90f))
+                    .border(1.dp, cacheColor.copy(alpha = 0.65f), RoundedCornerShape(6.dp))
+                    .clickable(onClick = onOpenCacheManager)
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .testTag("disk_cache_status_pill"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = if (isNetworkOnline) Icons.Default.Storage else Icons.Default.CloudOff,
+                    contentDescription = "Open OsmDroid Disk Cache Manager",
+                    tint = cacheColor,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = tileText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cacheColor
+                )
+            }
+            // Background GeoJSON Threat Proximity Sentinel Status Pill
+            val sentinelColor = when {
+                !isBackgroundSentinelArmed -> TacticalTextDim
+                isBackgroundSentinelRunning -> ThreatLowGreen
+                else -> DivisionAmber
+            }
+            val sentinelLabel = when {
+                !isBackgroundSentinelArmed -> "THREAT SENTINEL: PAUSED"
+                isBackgroundSentinelRunning -> "SENTINEL BG SERVICE: ARMED"
+                else -> "SENTINEL FOREGROUND: ARMED"
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(TacticalSurface.copy(alpha = 0.90f))
+                    .border(1.dp, sentinelColor.copy(alpha = 0.65f), RoundedCornerShape(6.dp))
+                    .clickable(onClick = onToggleSentinel)
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+                    .testTag("threat_sentinel_status_pill"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = if (isBackgroundSentinelArmed) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                    contentDescription = "Toggle background threat proximity alerts",
+                    tint = sentinelColor,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = sentinelLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = sentinelColor
+                )
+            }
         }
 
-        // 4. Top-Right: OSINT & State CCTV Vulnerability HUD Pill
-        SurveillanceExposureHudPill(
-            exposure = surveillanceExposure,
-            onClick = onOpenCctvScanner,
+        // 4. Top-Right: OSINT CCTV Exposure HUD Pill + Persistent Rotating Tactical Compass Overlay
+        val nextWaypoint = activeRoute?.path?.getOrNull(1) ?: activeRoute?.path?.lastOrNull()
+        val waypointBearing = nextWaypoint?.let { wp ->
+            CompassMath.bearingBetweenDegrees(userMovement.lat, userMovement.lng, wp.lat, wp.lng)
+        }
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(12.dp)
-        )
+                .padding(12.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SurveillanceExposureHudPill(
+                exposure = surveillanceExposure,
+                onClick = onOpenCctvScanner
+            )
 
-        // 5. Right-Edge: Zoom & Follow-Agent Controls
+            FloatingTacticalCompass(
+                compassReading = compassReading,
+                isHeadingLockEnabled = isHeadingLockEnabled,
+                targetBearingDegrees = waypointBearing,
+                onToggleHeadingLock = onToggleHeadingLock
+            )
+        }
+
+        // 5. Right-Edge: SOS Broadcast, Zoom, Cache, Rangefinder & Follow-Agent Controls
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 12.dp),
+            horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            SmallFloatingActionButton(
+                onClick = onOpenSosBroadcast,
+                containerColor = if (isSosPulseActive) ThreatCriticalRed else Color(0xFFB71C1C),
+                contentColor = Color.White,
+                modifier = Modifier
+                    .border(
+                        width = if (isSosPulseActive) (1.5f + pulseProgress * 1.5f).dp else 1.dp,
+                        color = Color.White.copy(alpha = if (isSosPulseActive) 0.9f else 0.5f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .testTag("sos_broadcast_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sos,
+                        contentDescription = "SOS Broadcast",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = if (isSosPulseActive) "LIVE" else "SOS",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             SmallFloatingActionButton(
                 onClick = {
                     mapView.controller.zoomIn()
@@ -547,6 +812,24 @@ fun TacticalMapView(
             }
 
             SmallFloatingActionButton(
+                onClick = onOpenCacheManager,
+                containerColor = TacticalSurface.copy(alpha = 0.92f),
+                contentColor = if (isNetworkOnline) TacticalCyan else DivisionAmber,
+                modifier = Modifier.testTag("map_disk_cache_button")
+            ) {
+                Icon(Icons.Default.DownloadForOffline, contentDescription = "Offline Tile Disk Cache")
+            }
+
+            SmallFloatingActionButton(
+                onClick = onToggleMeasureMode,
+                containerColor = if (distanceMeasurement.isActive) TacticalCyan else TacticalSurface.copy(alpha = 0.92f),
+                contentColor = if (distanceMeasurement.isActive) TacticalDarkBg else TacticalCyan,
+                modifier = Modifier.testTag("map_measure_distance_button")
+            ) {
+                Icon(Icons.Default.Straighten, contentDescription = "Measure Two-Point Distance")
+            }
+
+            SmallFloatingActionButton(
                 onClick = {
                     onToggleFollowAgent()
                     mapView.controller.animateTo(OsmGeoPoint(userMovement.lat, userMovement.lng))
@@ -561,6 +844,23 @@ fun TacticalMapView(
             ) {
                 Icon(Icons.Default.MyLocation, contentDescription = "Center on Agent GPS")
             }
+        }
+
+        // 6. Two-Point Distance Rangefinder HUD Card (positioned cleanly above floating layer bar)
+        AnimatedVisibility(
+            visible = distanceMeasurement.isActive || distanceMeasurement.pointA != null,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 12.dp, end = 12.dp, bottom = 74.dp)
+        ) {
+            DistanceMeasurementHudCard(
+                state = distanceMeasurement,
+                onSnapPointAToGps = onSnapMeasurePointAToGps,
+                onClearPoints = onClearMeasurePoints,
+                onCloseMode = onCloseMeasureMode
+            )
         }
     }
 }
@@ -611,5 +911,78 @@ private fun SurveillanceExposureHudPill(
             style = MaterialTheme.typography.labelSmall,
             color = TacticalTextSecondary
         )
+    }
+}
+
+@Composable
+private fun GeoJsonIntrusionAlertBanner(
+    alert: ThreatGeofenceAlert,
+    pulseProgress: Float,
+    onPlanBypass: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bgAlpha = 0.86f + pulseProgress * 0.12f
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(ThreatCriticalRed.copy(alpha = bgAlpha))
+            .border(1.5.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+            .padding(10.dp)
+            .testTag("geojson_intrusion_alert_banner"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Icon(
+                    imageVector = Icons.Default.GppMaybe,
+                    contentDescription = "High Intensity GeoJSON Threat Zone Alert",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "ZONE BREACH // ${alert.sectorCode}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.size(28.dp).testTag("dismiss_intrusion_alert_button")
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Dismiss Alert", tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        Text(
+            text = "${alert.zoneName} (${(alert.intensity * 100).toInt()}% intensity • ${alert.casualtyRisk})",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.94f)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onPlanBypass,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TacticalDarkBg,
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.height(32.dp).testTag("intrusion_evade_button")
+            ) {
+                Icon(Icons.AutoMirrored.Filled.AltRoute, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("EVADE ZONE", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }
