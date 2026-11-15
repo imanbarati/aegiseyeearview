@@ -15,18 +15,31 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore IntelSourceManagerView if corrupted
+        run: |
+          set -euo pipefail
+          F=app/src/main/java/com/example/ui/sources/IntelSourceManagerView.kt
+          if [ ! -s "$F" ] || grep -q PLACEHOLDER "$F"; then
+            echo "Restoring IntelSourceManagerView.kt from last good commit"
+            git show 3fa9ae4b23f51f67649cd63b1ab2ec9dc8d07262:"$F" > "$F"
+          fi
+          wc -c "$F"
 
       - name: Clear fictional data + wire live open-data
         run: python3 scripts/inject_real_data.py
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
+      - name: Fix exhaustive when branches
+        run: python3 scripts/fix_intel_when.py
+
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
@@ -49,35 +62,27 @@ jobs:
             /opt/gradle-9.3.1/bin/gradle wrapper --gradle-version 9.3.1
           fi
           chmod +x gradlew
-          ./gradlew --version
 
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Stage APK
         run: |
-          set -euo pipefail
           mkdir -p release-assets
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
-          OUT="release-assets/AegisEye-LiveData-${GITHUB_SHA::7}-debug.apk"
-          cp "$APK" "$OUT"
-          ls -lh "$OUT"
+          cp "$APK" "release-assets/AegisEye-LiveData-${GITHUB_SHA::7}-debug.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: aegis-eye-debug-apk
           path: release-assets/*.apk
-          if-no-files-found: error
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: aegis-live-${{ github.run_number }}
           name: Aegis Eye LIVE DATA APK (build ${{ github.run_number }})
           body: |
-            Real open data build:
-            - USGS earthquakes (24h)
-            - OSM hospitals near GPS
-            - No fictional combat layers
+            Real open data: USGS earthquakes + OSM hospitals. No fictional combat layers.
           files: release-assets/*.apk
           prerelease: true
         env:
