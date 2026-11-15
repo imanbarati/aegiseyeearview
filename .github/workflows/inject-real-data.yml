@@ -1,0 +1,140 @@
+name: Inject real open-data bootstrap into ViewModel
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/src/main/java/com/example/data/RealOpenDataService.kt'
+      - '.github/workflows/inject-real-data.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empty fictional lists + bootstrap live fetch
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("app/src/main/java/com/example/data/TacticalDataProvider.kt")
+          text = p.read_text(encoding="utf-8")
+
+          # Replace large list assignments with emptyList() for known fake datasets
+          for name in [
+              "THREAT_ZONES",
+              "THREAT_HEATMAP_POINTS",
+              "SAFE_HAVENS",
+              "SURVEILLANCE_CAMERAS",
+              "LIVE_INCIDENTS",
+          ]:
+              # val NAME = listOf( ... )
+              pat = re.compile(
+                  rf"(val\s+{name}\s*=\s*)listOf\(",
+                  re.M,
+              )
+              m = pat.search(text)
+              if not m:
+                  print(f"skip missing {name}")
+                  continue
+              start = m.start(1)
+              # find matching close for listOf(
+              i = m.end()
+              depth = 1
+              while i < len(text) and depth:
+                  if text[i] == '(':
+                      depth += 1
+                  elif text[i] == ')':
+                      depth -= 1
+                  i += 1
+              # consume trailing newline
+              text = text[: m.start()] + f"val {name} = emptyList()\n" + text[i:]
+              print(f"emptied {name}")
+
+          # DEFAULT_INTEL_SOURCES -> minimal real sources marker
+          text = re.sub(
+              r"val\s+DEFAULT_INTEL_SOURCES\s*=\s*listOf\(",
+              "val DEFAULT_INTEL_SOURCES = listOf(",
+              text,
+              count=1,
+          )
+          p.write_text(text, encoding="utf-8")
+          print("provider patched")
+
+          vm = Path("app/src/main/java/com/example/ui/viewmodel/TacticalViewModel.kt")
+          v = vm.read_text(encoding="utf-8")
+          if "refreshRealOpenData" not in v:
+              v = v.replace(
+                  "import com.example.data.TacticalDataProvider\n",
+                  "import com.example.data.TacticalDataProvider\nimport com.example.data.RealOpenDataService\n",
+              )
+              hook = '''
+    fun refreshRealOpenData() {
+        viewModelScope.launch {
+            val lat = _uiState.value.userMovement.lat
+            val lng = _uiState.value.userMovement.lng
+            runCatching { RealOpenDataService.fetchAll(lat, lng) }
+                .onSuccess { bundle ->
+                    _uiState.update {
+                        it.copy(
+                            threatZones = bundle.threatZones,
+                            heatmapPoints = bundle.heatmapPoints,
+                            liveIncidents = bundle.liveIncidents,
+                            safeHavens = if (bundle.safeHavens.isNotEmpty()) bundle.safeHavens else it.safeHavens,
+                            cameras = emptyList(),
+                            intelSources = bundle.intelSources,
+                            threatWarning = "LIVE OPEN DATA: ${bundle.statusMessage}",
+                            showCctvOverlay = false,
+                            geoJsonThreatPolygons = emptyList(),
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(threatWarning = "Open-data fetch failed: ${e.message}")
+                    }
+                }
+        }
+    }
+'''
+              # insert after class fields section - after appContextRef
+              v = v.replace(
+                  "private var appContextRef: Context? = null\n",
+                  "private var appContextRef: Context? = null\n" + hook,
+              )
+              # call from initPersistence
+              v = v.replace(
+                  "persistenceInitialized = true\n",
+                  "persistenceInitialized = true\n        refreshRealOpenData()\n",
+              )
+              vm.write_text(v, encoding="utf-8")
+              print("viewmodel patched")
+          else:
+              print("viewmodel already has refresh")
+
+          # MainActivity / screen: ensure initPersistence is enough
+          main = Path("app/src/main/java/com/example/ui/TacticalMainScreen.kt")
+          if main.exists():
+              mt = main.read_text(encoding="utf-8")
+              if "refreshRealOpenData" not in mt and "initPersistence" in mt:
+                  mt = mt.replace(
+                      "viewModel.initPersistence(",
+                      "viewModel.refreshRealOpenData(); viewModel.initPersistence(",
+                      1,
+                  )
+                  main.write_text(mt, encoding="utf-8")
+                  print("main screen call added")
+          PY
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Bootstrap live USGS + OSM data; clear fictional theatre lists"
+          git push
