@@ -1,0 +1,87 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Ensure Gradle Wrapper
+        run: |
+          set -euo pipefail
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.11.1 || \
+              (curl -fsSL https://services.gradle.org/distributions/gradle-8.11.1-bin.zip -o /tmp/g.zip && \
+               sudo unzip -q /tmp/g.zip -d /opt && /opt/gradle-8.11.1/bin/gradle wrapper --gradle-version 8.11.1)
+          fi
+          chmod +x gradlew
+
+      - name: Assemble debug APK
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Stage APK
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
+          OUT="release-assets/AegisEye-${GITHUB_SHA::7}-debug.apk"
+          cp "$APK" "$OUT"
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+          ls -lh "$OUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-eye-debug-apk
+          path: release-assets/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: aegis-${{ github.run_number }}-${{ github.sha }}
+          name: Aegis Eye APK (build ${{ github.run_number }})
+          body: |
+            Debug APK for **Aegis Eye** (`com.aegiseye.app`).
+
+            - Commit: `${{ github.sha }}`
+            - Offline OSM map + bundled tactical GeoJSON layers
+            - Signed with Android **debug** keystore (sideload / testing)
+
+            Enable "Install unknown apps" to install.
+          files: release-assets/*.apk
+          draft: false
+          prerelease: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
