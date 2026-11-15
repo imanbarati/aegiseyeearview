@@ -23,6 +23,104 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clear fictional theatre data + wire live open-data bootstrap
+        run: |
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("app/src/main/java/com/example/data/TacticalDataProvider.kt")
+          text = p.read_text(encoding="utf-8")
+          for name, typ in [
+              ("THREAT_ZONES", "ThreatZone"),
+              ("THREAT_HEATMAP_POINTS", "ThreatHeatmapPoint"),
+              ("SAFE_HAVENS", "SafeHaven"),
+              ("SURVEILLANCE_CAMERAS", "SurveillanceCamera"),
+              ("LIVE_INCIDENTS", "LiveIncident"),
+          ]:
+              pat = re.compile(rf"val\s+{name}\s*(?::\s*[^=]+)?\s*=\s*listOf\(", re.M)
+              m = pat.search(text)
+              if not m:
+                  # already emptyList?
+                  if f"val {name}" in text and "emptyList" in text:
+                      print(f"already empty {name}")
+                      continue
+                  print(f"missing {name}")
+                  continue
+              i = m.end()
+              depth = 1
+              while i < len(text) and depth:
+                  if text[i] == '(':
+                      depth += 1
+                  elif text[i] == ')':
+                      depth -= 1
+                  i += 1
+              text = text[: m.start()] + f"val {name}: List<{typ}> = emptyList()\n" + text[i:]
+              print(f"emptied {name}")
+          p.write_text(text, encoding="utf-8")
+
+          vm = Path("app/src/main/java/com/example/ui/viewmodel/TacticalViewModel.kt")
+          v = vm.read_text(encoding="utf-8")
+          if "RealOpenDataService" not in v:
+              v = v.replace(
+                  "import com.example.data.TacticalDataProvider\n",
+                  "import com.example.data.TacticalDataProvider\nimport com.example.data.RealOpenDataService\n",
+              )
+          if "refreshRealOpenData" not in v:
+              hook = '''
+    fun refreshRealOpenData() {
+        viewModelScope.launch {
+            val lat = _uiState.value.userMovement.lat
+            val lng = _uiState.value.userMovement.lng
+            runCatching { RealOpenDataService.fetchAll(lat, lng) }
+                .onSuccess { bundle ->
+                    _uiState.update {
+                        it.copy(
+                            threatZones = bundle.threatZones,
+                            heatmapPoints = bundle.heatmapPoints,
+                            liveIncidents = bundle.liveIncidents,
+                            safeHavens = if (bundle.safeHavens.isNotEmpty()) bundle.safeHavens else it.safeHavens,
+                            cameras = emptyList(),
+                            intelSources = bundle.intelSources,
+                            threatWarning = "LIVE OPEN DATA: " + bundle.statusMessage,
+                            showCctvOverlay = false,
+                            geoJsonThreatPolygons = emptyList(),
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _uiState.update {
+                        it.copy(threatWarning = "Open-data fetch failed: " + (e.message ?: "error"))
+                    }
+                }
+        }
+    }
+'''
+              v = v.replace(
+                  "private var appContextRef: Context? = null\n",
+                  "private var appContextRef: Context? = null\n" + hook,
+              )
+              v = v.replace(
+                  "persistenceInitialized = true\n",
+                  "persistenceInitialized = true\n        refreshRealOpenData()\n",
+                  1,
+              )
+          vm.write_text(v, encoding="utf-8")
+          print("viewmodel ready")
+
+          main = Path("app/src/main/java/com/example/ui/TacticalMainScreen.kt")
+          if main.exists():
+              mt = main.read_text(encoding="utf-8")
+              if "refreshRealOpenData" not in mt:
+                  mt = mt.replace(
+                      "viewModel.initPersistence(context)",
+                      "viewModel.initPersistence(context)\n        viewModel.refreshRealOpenData()",
+                      1,
+                  )
+                  main.write_text(mt, encoding="utf-8")
+                  print("main screen hooked")
+          PY
+
       - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
@@ -37,7 +135,6 @@ jobs:
       - name: Ensure Gradle Wrapper 9.3.1
         run: |
           set -euo pipefail
-          # Force distribution to AGP-required version
           mkdir -p gradle/wrapper
           cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
           distributionBase=GRADLE_USER_HOME
@@ -48,7 +145,6 @@ jobs:
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           EOF
-          # Generate wrapper scripts if missing
           if [ ! -f gradlew ]; then
             curl -fsSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle.zip
             sudo unzip -q /tmp/gradle.zip -d /opt
@@ -58,15 +154,14 @@ jobs:
           ./gradlew --version
 
       - name: Assemble debug APK
-        run: |
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Stage APK
         run: |
           set -euo pipefail
           mkdir -p release-assets
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -n1)
-          OUT="release-assets/AegisEye-${GITHUB_SHA::7}-debug.apk"
+          OUT="release-assets/AegisEye-LiveData-${GITHUB_SHA::7}-debug.apk"
           cp "$APK" "$OUT"
           ls -lh "$OUT"
 
@@ -80,19 +175,19 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: aegis-${{ github.run_number }}-${{ github.sha }}
-          name: Aegis Eye APK (build ${{ github.run_number }})
+          tag_name: aegis-live-${{ github.run_number }}
+          name: Aegis Eye LIVE DATA APK (build ${{ github.run_number }})
           body: |
-            Debug APK for **Aegis Eye** (`com.aegiseye.app`).
+            **Aegis Eye** with **real open data** (not fictional theatre layers).
 
-            - Commit: `${{ github.sha }}`
-            - Offline OSM map + bundled tactical GeoJSON layers
-            - Signed with Android **debug** keystore (sideload / testing)
+            - Live **USGS** earthquakes (M2.5+ / 24h)
+            - Live **OpenStreetMap** hospitals near your GPS (Overpass)
+            - Real **OSM/Carto** map tiles
+            - Fake combat / exclusion GeoJSON cleared
 
-            Enable "Install unknown apps" to install.
+            App id: `com.aegiseye.app` · debug-signed (sideload)
           files: release-assets/*.apk
           draft: false
           prerelease: true
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
